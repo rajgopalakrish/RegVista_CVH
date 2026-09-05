@@ -128,6 +128,20 @@ plain HTTPS. Worked around this by testing the live app via
 `ConvexHttpClient` (plain HTTPS, the same public API our frontend uses)
 instead of the CLI's admin commands.
 
+## 2026-09-05 — Static hosting deploy needs a deploy key with function-run scope
+
+`@convex-dev/static-hosting deploy`/`upload` both fail with the generic
+"Could not reach component" message. Running the underlying command
+directly (`npx convex run --component staticHosting lib:getUrls ...`)
+surfaced the real error: `You do not have permission to perform this
+operation (deployment:functions:runInternalQueries)`. The tool resolves
+the component's live URL by running one of its internal queries, which
+needs that scope on `CONVEX_DEPLOY_KEY` — our current key was created
+without it. Backend `npx convex deploy` still works fine (only needs
+`deployment:deploy`). Needs a new deploy key with at least
+`deployment:functions:runInternalQueries` (and, per the earlier
+recommendation, the rest of the Functions/Data/Logs scopes) to proceed.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
