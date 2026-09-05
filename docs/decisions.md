@@ -142,6 +142,28 @@ without it. Backend `npx convex deploy` still works fine (only needs
 `deployment:functions:runInternalQueries` (and, per the earlier
 recommendation, the rest of the Functions/Data/Logs scopes) to proceed.
 
+## 2026-09-05 — WebSocket is a hard limitation of this sandbox, confirmed definitively
+
+Tried to verify the deployed frontend with a real headless Chromium
+(Playwright) session, proxied through this sandbox's egress proxy. The page
+request itself reset mid-handshake (`ws_closed_mid_exchange` on
+`brilliant-roadrunner-68.convex.site`), reproducible even with HTTP/2 and
+QUIC disabled in Chromium. `/root/.ccr/README.md`'s own troubleshooting
+section settles it under "Not supported through the proxy (report, do not
+work around)": **WebSocket upgrades** are explicitly unsupported, alongside
+HTTP/2-only APIs and a few other protocols. This is the same root cause as
+the earlier "Convex CLI commands hang" finding — `convex run`/`env list`
+and Convex's reactive client (`ConvexReactClient`, used by every `useQuery`
+in the app) both depend on a WebSocket to the deployment, which this
+sandbox cannot tunnel at all, not merely slowly.
+
+Practical effect: this sandbox can verify a Convex app's plain-HTTPS
+surface (page load, static assets, `ConvexHttpClient` query/mutation/action
+calls — proven working, see the "real deployment" entries above) but
+**cannot** exercise the reactive, WebSocket-driven behavior a real browser
+session would use once React mounts and calls `useQuery`. That gap needs
+either a different network environment or the project owner's own browser.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
