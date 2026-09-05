@@ -164,6 +164,57 @@ calls — proven working, see the "real deployment" entries above) but
 session would use once React mounts and calls `useQuery`. That gap needs
 either a different network environment or the project owner's own browser.
 
+## 2026-09-05 — Fixed research pipeline treating company marketing as regulatory findings
+
+Live evidence (querying the existing "Google" company on the real
+deployment) showed all 6 stored findings cited only `cloud.google.com`,
+`workspace.google.com`, and `developers.google.com` — Google Cloud selling
+compliance-as-a-feature to its own customers, not Google's own regulatory
+obligations — yet scored 7-10/10 with vague `regulator` values like
+"Various regulatory authorities" and "ISO and other standards bodies".
+
+Root cause: `researchActions.ts` ran one generic Firecrawl query
+(`"<company> <industry> regulatory compliance regulator"`), which a
+company's own marketing pages dominate for ordinary SEO reasons (nobody
+outranks a company on searches about itself), and the OpenAI prompt never
+told the model to distinguish "mentions regulation" from "describes an
+obligation imposed by an outside authority" — so any source using
+regulatory-sounding language got extracted and scored highly.
+
+Fix (all in `researchActions.ts`, no schema/UI changes):
+- Two targeted queries instead of one — enforcement/investigation framing
+  and regulation/law/license framing — replacing the generic "compliance"
+  framing that favored marketing pages. Deduped by URL, capped at 10
+  sources.
+- Added a required `sourceCategory` field to the model's structured output
+  (`regulator_or_government` / `regulatory_enforcement_or_legal_news` /
+  `company_regulatory_disclosure` / `generic_compliance_marketing`) with an
+  explicit rubric, and a `relevanceScore` field with a described 0-100
+  rubric tied to how binding/authoritative the finding actually is.
+- System/user prompts now explicitly state RegVista's promise and give
+  concrete negative examples (ISO/SOC 2 marketing, cloud "compliance
+  support" pages, security whitepapers) so the model has a real basis to
+  reject them instead of just being told "don't fabricate."
+- Code-side backstop, independent of the model's own compliance: drop any
+  finding categorized `generic_compliance_marketing`, and drop any finding
+  scoring below `MIN_RELEVANCE_SCORE = 40` — "has a source URL" is no
+  longer sufficient to keep a finding.
+
+None of this references "Google" anywhere in code — it's driven entirely
+by `company.name`/`company.industry`, so the same fix applies to any
+company.
+
+Verified by re-running the live pipeline against a fresh "Google" company
+on the real deployment (see hackathon.md for the before/after finding
+list): before, 6/6 findings were Google's own marketing pages; after, 4
+findings from `justice.gov` (DOJ antitrust remedies, score 95), a legal
+news source covering a CNIL GDPR fine (score 90), the Financial Times
+covering European Commission DMA enforcement (score 85), and one borderline
+finding about Google's own ad-certification policy (score 50, right at the
+threshold) — the one residual case worth watching, since it's Google's own
+platform policy rather than an obligation imposed on Google, but it's
+honestly scored low rather than inflated.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
