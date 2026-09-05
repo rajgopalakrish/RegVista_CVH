@@ -5,16 +5,16 @@
 - **What it does:** Enter a company and see its regulatory landscape —
   jurisdictions, regulators, regulatory areas, and evidence-backed findings
   with a relevance score and "why this matters," plus an emailed briefing.
-- **Live app:** not deployed
+- **Live app:** https://brilliant-roadrunner-68.convex.site
 - **Repo:** https://github.com/rajgopalakrish/RegVista_CVH
-- **Frontend:** not deployed
+- **Frontend:** Convex static hosting
 - **Convex deployment:** https://brilliant-roadrunner-68.convex.cloud
-- **Components:** none
+- **Components:** @convex-dev/static-hosting
 - **Convex features:** schema, indexes, queries, mutations, internal mutations, actions, internal actions, scheduled functions, realtime queries
 - **Auth:** none
 - **AI models:** gpt-4.1-mini (direct OpenAI SDK call, not the Convex AI Gateway)
 - **Started:** 2026-09-05T07:16:49Z
-- **Last updated:** 2026-09-05T16:35:45Z
+- **Last updated:** 2026-09-05T16:50:26Z
 
 ## Log
 
@@ -74,3 +74,19 @@ one live source URL (stripe.com, docs.stripe.com, stripe.training) — no
 mocked data. Confirmed persistence and reactive status transitions
 (pending → running → done). Sent a real AgentMail briefing for that run
 and confirmed it was delivered to an inbox.
+
+### 2026-09-05 - 59505a5 / f2e945c
+Deployed the frontend to Convex static hosting. Registered
+`@convex-dev/static-hosting` in `convex/convex.config.ts` (component owns
+the root at `/`; no existing `http.ts` routes to preserve) and added an
+`npm run deploy` script. `npx @convex-dev/static-hosting upload --build`
+built the frontend with the real deployment's `VITE_CONVEX_URL` baked in
+and published it — the app is now live at
+`https://brilliant-roadrunner-68.convex.site`, verified serving the real
+`index.html`/JS/CSS (HTTP 200s) with the correct Convex deployment URL
+inside the built bundle. Full in-browser reactive verification (the
+WebSocket `useQuery` path) isn't possible from this build sandbox — its
+egress proxy doesn't support WebSocket upgrades at all, confirmed via a
+Playwright/Chromium session against the live URL and documented in the
+proxy's own troubleshooting notes; the underlying functions it would call
+were already verified live via direct HTTPS calls to the same deployment.
