@@ -52,6 +52,24 @@ type-only, so both projects must be able to check the same files without
 Node ambient globals. This is also just the pattern Convex's generated code
 itself uses.
 
+## 2026-09-05 — This sandbox cannot reach Convex, Firecrawl, OpenAI, or AgentMail
+
+`npx convex deploy` failed with a bare `fetch failed` even with a valid dev
+deploy key. Checking the agent proxy (`curl $HTTPS_PROXY/__agentproxy/status`)
+showed the real cause: this session's outbound network policy rejects the
+CONNECT tunnel (403, "policy denial") to `api.convex.dev`,
+`*.convex.cloud`, `dashboard.convex.dev`, `api.openai.com`,
+`api.firecrawl.dev`, and `api.agentmail.to` alike. This is an
+organization-level egress allowlist for this Claude Code Remote
+environment (chosen when the environment was created), not something fixable
+by retrying, changing credentials, or code changes — the agent proxy's own
+README explicitly says not to retry a 403 policy denial. All four required
+services are unreachable from here, so no live call in the pipeline
+(deploy, research, or briefing) can be exercised from this sandbox as
+configured. Live verification needs to run somewhere with egress to those
+four domains — the project owner's machine, or a Claude Code environment
+whose network policy allows them.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
