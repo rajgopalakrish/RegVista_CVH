@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 import { AgentMailClient } from "agentmail";
-import { action, env } from "./_generated/server";
+import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 
 /**
@@ -50,7 +50,7 @@ export const sendBriefing = action({
 });
 
 function requireEnv(name: string): string {
-  const value = env[name];
+  const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }

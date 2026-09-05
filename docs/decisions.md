@@ -39,18 +39,27 @@ functions, never in queries or mutations. This is a Convex platform
 requirement (queries/mutations must be deterministic and side-effect-free)
 and also keeps the untrusted-content boundary (AGENTS.md §8) in one place.
 
-## 2026-09-05 — Use generated `env` from `convex/_generated/server`, not bare `process.env`
+## 2026-09-05 — Superseded: use `process.env`, not generated `env` (see below)
 
-Node actions (`researchActions.ts`, `notify.ts`) read `FIRECRAWL_API_KEY`,
-`OPENAI_API_KEY`, and `AGENTMAIL_API_KEY`/`AGENTMAIL_INBOX_ID` via the `env`
-object Convex's own codegen exports from `_generated/server.ts`, instead of
-the bare `process` global. This avoids requiring `@types/node` in a project
-that also typechecks `convex/*.ts` from the frontend's Vite project (whose
-`tsconfig.app.json` has no Node lib/types) — the frontend imports
-`../convex/_generated/api`, which pulls in every `convex/*.ts` file
-type-only, so both projects must be able to check the same files without
-Node ambient globals. This is also just the pattern Convex's generated code
-itself uses.
+An earlier version of this entry said to use the `env` export from
+`_generated/server.ts` instead of `process.env`, to sidestep a local
+`@types/node` typecheck issue. The real `npx convex deploy` proved that
+wrong: Convex's generated `Env` type only includes vars it can prove are
+declared (the two platform vars, plus anything declared in
+`convex.config.ts`) — it does **not** know about dashboard-set secrets like
+`FIRECRAWL_API_KEY`. Indexing it with an arbitrary string
+(`env[name]`) failed the deploy's own typecheck with "No index signature ...
+on type Env". Runtime evidence from an actual deployment beat the earlier
+local-only assumption (AGENTS.md §4 priority order).
+
+Fixed by reverting `researchActions.ts` and `notify.ts` to plain
+`process.env[name]` — the standard way every real Convex Node action reads
+runtime secrets — and instead solving the original problem directly: added
+`@types/node` as a devDependency and `"types": ["node"]` to both
+`convex/tsconfig.json` and `tsconfig.app.json`. The frontend needs it too
+because it type-imports `../convex/_generated/api`, which pulls every
+`convex/*.ts` file (including the two `"use node"` action files) into the
+same type-check, so both projects need to agree that `process` exists.
 
 ## 2026-09-05 — This sandbox cannot reach Convex, Firecrawl, OpenAI, or AgentMail
 
@@ -69,6 +78,33 @@ services are unreachable from here, so no live call in the pipeline
 configured. Live verification needs to run somewhere with egress to those
 four domains — the project owner's machine, or a Claude Code environment
 whose network policy allows them.
+
+## 2026-09-05 — Network egress unblocked; live deploy now working
+
+The earlier "sandbox can't reach Convex/OpenAI/Firecrawl/AgentMail" blocker
+was resolved by switching this Claude Code environment's network access
+from Trusted to Custom, explicitly allowlisting `api.convex.dev`,
+`*.convex.cloud`, `dashboard.convex.dev`, `convex.site`, `*.convex.site`,
+`api.openai.com`, `api.firecrawl.dev`, and `api.agentmail.to`. Verified with
+direct `curl` checks before retrying the deploy.
+
+## 2026-09-05 — Added `@x402/fetch` as a direct dependency
+
+`npx convex deploy`'s esbuild bundling step failed with `Could not resolve
+"@x402/fetch"` inside `agentmail`'s wrapper client. Reading
+`node_modules/agentmail/dist/esm/wrapper/Client.mjs` showed why: the
+package does an optional dynamic `import("@x402/fetch")` for an opt-in
+crypto-payment feature (`options.x402`) we never pass to `AgentMailClient`.
+The import is real code, not dead code, so esbuild still tries to resolve
+it at bundle time even though it never runs for us.
+
+Convex's `convex.json` `node.externalPackages` list looked like the fix,
+but reading `node_modules/convex/dist/cjs/bundler/external.js` showed it
+only marks a package external if it's *already installed* — it doesn't
+help for a package that's referenced but never installed at all. Given
+that, the smallest reliable fix was to actually install `@x402/fetch`
+(pulls in only `@x402/core`, both pure JS, no native deps) so esbuild can
+resolve it; the code path that would use it still never executes.
 
 ## Open questions (not yet decided)
 

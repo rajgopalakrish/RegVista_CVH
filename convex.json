@@ -1,0 +1,5 @@
+{
+  "node": {
+    "externalPackages": ["@x402/fetch"]
+  }
+}

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Firecrawl, type Document } from "firecrawl";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { env, internalAction } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 
 const FindingSchema = z.object({
@@ -163,7 +163,7 @@ export const run = internalAction({
 });
 
 function requireEnv(name: string): string {
-  const value = env[name];
+  const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
