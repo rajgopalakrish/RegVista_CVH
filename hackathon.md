@@ -14,7 +14,7 @@
 - **Auth:** none
 - **AI models:** gpt-4.1-mini (direct OpenAI SDK call, not the Convex AI Gateway)
 - **Started:** 2026-09-05T07:16:49Z
-- **Last updated:** 2026-09-05T16:50:26Z
+- **Last updated:** 2026-09-05T17:05:20Z
 
 ## Log
 
@@ -90,3 +90,23 @@ egress proxy doesn't support WebSocket upgrades at all, confirmed via a
 Playwright/Chromium session against the live URL and documented in the
 proxy's own troubleshooting notes; the underlying functions it would call
 were already verified live via direct HTTPS calls to the same deployment.
+
+### 2026-09-05 - cbbd79a
+Fixed a real quality problem in the research pipeline (`researchActions.ts`):
+every finding for "Google" was citing only Google's own marketing pages
+(`cloud.google.com/compliance`, a Workspace security whitepaper) with vague
+"regulator" values like "various bodies", yet scored 7-10/10. Root cause:
+one generic Firecrawl query that a company's own marketing pages dominate
+by ordinary SEO, and a prompt that never distinguished "mentions
+regulation" from "describes an obligation imposed by an outside authority".
+Replaced it with two targeted queries (enforcement/investigation vs.
+regulation/law/license), added a required `sourceCategory` classification
+to OpenAI's structured output so company marketing/ISO/SOC 2 pages get
+tagged and dropped rather than treated as findings, and a code-side minimum
+relevance-score threshold so a finding needs real evidence, not just a
+source URL, to be kept. Re-running research for Google on the live
+deployment went from 6/6 marketing-page findings to 4 findings backed by
+`justice.gov` (DOJ antitrust remedies), credible reporting on a CNIL GDPR
+fine, and Financial Times coverage of EU Digital Markets Act enforcement —
+one borderline finding (Google's own ad-certification policy) remains,
+honestly scored at the threshold rather than inflated.
