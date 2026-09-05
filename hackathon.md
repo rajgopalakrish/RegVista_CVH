@@ -1,33 +1,29 @@
-# RegVista — Convex All Gas Hackathon Build Log
+# Hackathon log
 
-**Hackathon:** Convex All Gas Hackathon (sponsored by OpenAI, Firecrawl, AgentMail)
-**Team:** raj.gopalakrish@gmail.com
-**Repo:** https://github.com/rajgopalakrish/RegVista_CVH
-**Started:** 2026-09-05
-
-## What we're building
-
-_To be filled in once the product spec (`AGENTS.md`) is added._
-
-## Stack
-
-- Backend: Convex (TBD)
-- Data ingestion: Firecrawl (TBD)
-- Inbox/email: AgentMail (TBD)
-- LLM: OpenAI (TBD)
-- Frontend hosting: Convex static hosting / ChatGPT Sites (TBD)
+- **Project:** RegVista
+- **Event:** Convex All Gas Hackathon
+- **What it does:** Not documented yet
+- **Live app:** not deployed
+- **Repo:** https://github.com/rajgopalakrish/RegVista_CVH
+- **Frontend:** not deployed
+- **Convex deployment:** not deployed
+- **Components:** none
+- **Convex features:** none yet
+- **Auth:** none
+- **AI models:** none
+- **Started:** 2026-09-05T07:16:49Z
+- **Last updated:** 2026-09-05T07:25:42Z
 
 ## Log
 
-### 2026-09-05
-- Repo and branch scaffolded (`README.md`, `.gitignore`, `hackathon.md`).
-- Captured hackathon rules and requirements in the README.
-- Waiting on the product spec and the Convex hackathon setup prompt before scaffolding the app itself.
+### 2026-09-05 - 78adf31
+Scaffolded the repo with a README and `.gitignore`.
 
-## Live URL
+### 2026-09-05 - e81bb9e
+Documented the Convex All Gas Hackathon requirements in the README (Convex
+backend, Firecrawl data, AgentMail inbox, public repo, `convex.site`/
+`chatgpt.site` hosting, Sept 22 deadline).
 
-_TBD_
-
-## Video demo
-
-_TBD_
+### 2026-09-05 - working tree
+Installed the `convex-hackathon-skill` into `.claude/skills/` to maintain this
+log going forward. Product spec (`AGENTS.md`) and app stack not yet added.
