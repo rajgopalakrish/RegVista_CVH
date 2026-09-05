@@ -106,6 +106,28 @@ that, the smallest reliable fix was to actually install `@x402/fetch`
 (pulls in only `@x402/core`, both pure JS, no native deps) so esbuild can
 resolve it; the code path that would use it still never executes.
 
+## 2026-09-05 — Node's built-in `fetch` needs `--use-env-proxy` in this sandbox
+
+Testing the live pipeline with a plain Node script (`ConvexHttpClient` over
+HTTPS, no WebSocket) failed with a confusing `Host not in allowlist:
+brilliant-roadrunner-68.convex.cloud` error — but the identical request via
+`curl` succeeded. Cause: `curl` honors `HTTPS_PROXY` automatically; Node's
+built-in `fetch` (undici) does not, unless run with the (experimental)
+`--use-env-proxy` flag or an explicit `ProxyAgent`. Without it, Node
+attempted a direct connection that a different, lower-level network
+boundary rejected with that message — unrelated to the Claude Code
+environment's network access setting, which only governs the
+`HTTPS_PROXY`-based path. Any local Node script that calls external APIs
+directly from this sandbox needs `node --use-env-proxy ...`.
+
+Separately: the Convex CLI's WebSocket-based commands (`convex run`, and
+apparently `env list`) hang indefinitely retrying a WebSocket connection
+that never succeeds in this sandbox, even with the network policy widened —
+looks like the proxy doesn't tunnel WS upgrades the same way it tunnels
+plain HTTPS. Worked around this by testing the live app via
+`ConvexHttpClient` (plain HTTPS, the same public API our frontend uses)
+instead of the CLI's admin commands.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
