@@ -526,6 +526,8 @@ export const run = internalAction({
 
       let neutralizedCount = 0;
       let downgradedTopicCount = 0;
+      let downgradedEvidenceCount = 0;
+      let statusCorrectedCount = 0;
       const findings = candidatesInScope
         .map((f) => {
           // Backstop for the same rule already stated in the itemType/
@@ -540,11 +542,28 @@ export const run = internalAction({
             f.itemType === "REGULATION_REGIME" && !f.regimeKey ? "NEWS" : f.itemType;
           if (itemType !== f.itemType) downgradedTopicCount++;
 
+          // DIRECTLY_EVIDENCED backstop: secondary-only sources (no
+          // regulator/government/authority URL among them) can support
+          // STRONGLY_INFERRED, but must not be the sole basis for the
+          // model's stronger DIRECTLY_EVIDENCED claim.
+          const applicabilityEvidence =
+            f.applicabilityEvidence === "DIRECTLY_EVIDENCED" &&
+            !hasAuthoritativeSource(f.sourceUrls)
+              ? "STRONGLY_INFERRED"
+              : f.applicabilityEvidence;
+          if (applicabilityEvidence !== f.applicabilityEvidence) downgradedEvidenceCount++;
+
+          // Status backstop: an effective/commencement date the model
+          // itself extracted takes precedence over an ambiguous
+          // FUTURE_OR_PROPOSED label for the same finding.
+          const status = correctFutureStatus(f.status, f.effectiveDate, f.implementationDate);
+          if (status !== f.status) statusCorrectedCount++;
+
           const claimContext = { regimeLabel: f.regimeKey ?? f.title, regulatoryArea: f.regulatoryArea };
-          const summary = neutralizeUnsupportedClaims(f.summary, f.applicabilityEvidence, claimContext);
+          const summary = neutralizeUnsupportedClaims(f.summary, applicabilityEvidence, claimContext);
           const whyItMatters = neutralizeUnsupportedClaims(
             f.whyItMatters,
-            f.applicabilityEvidence,
+            applicabilityEvidence,
             claimContext,
           );
           if (summary !== f.summary || whyItMatters !== f.whyItMatters) neutralizedCount++;
@@ -556,10 +575,10 @@ export const run = internalAction({
             regulatoryArea: f.regulatoryArea,
             title: f.title,
             summary,
-            status: f.status,
+            status,
             applicabilityLevel: f.applicabilityLevel,
             applicabilityConfidence: normalizeConfidence(f.applicabilityConfidence),
-            applicabilityEvidence: f.applicabilityEvidence,
+            applicabilityEvidence,
             relevanceScore: f.relevanceScore,
             whyItMatters,
             sourceQuality: f.sourceQuality,
@@ -596,6 +615,19 @@ export const run = internalAction({
           `[research:${runId}] downgraded ${downgradedTopicCount} REGULATION_REGIME item(s) to ` +
             `NEWS: the model classified them as a named regime but left regimeKey empty, its own ` +
             `signal that it's a broad topic rather than a specific instrument`,
+        );
+      }
+      if (downgradedEvidenceCount > 0) {
+        console.warn(
+          `[research:${runId}] downgraded ${downgradedEvidenceCount} finding(s) from ` +
+            `DIRECTLY_EVIDENCED to STRONGLY_INFERRED: no cited source matched an authoritative ` +
+            `regulator/government hint, so secondary sources alone can't establish direct evidence`,
+        );
+      }
+      if (statusCorrectedCount > 0) {
+        console.warn(
+          `[research:${runId}] corrected ${statusCorrectedCount} finding(s) from FUTURE_OR_PROPOSED: ` +
+            `the model's own extracted effective/implementation date has already passed`,
         );
       }
       if (neutralizedCount > 0) {
@@ -779,6 +811,76 @@ function sourceAuthorityRank(url: string, companyName: string): number {
   if (AUTHORITATIVE_URL_HINTS.some((hint) => lower.includes(hint))) return 0;
   if (isGenericLowQualitySource(url) || isCompanyOwnDomain(url, companyName)) return 2;
   return 1;
+}
+
+// DIRECTLY_EVIDENCED backstop: is at least one cited source actually
+// published by the regulator/government itself, as an independent,
+// deterministic check — rather than trusting the model's own
+// applicabilityEvidence label at face value. Secondary-only sources (news,
+// law-firm commentary, vendor blogs) can support STRONGLY_INFERRED, but per
+// the field's own instructions should never be the sole basis for
+// DIRECTLY_EVIDENCED — see the downgrade applied where findings are built.
+//
+// Deliberately checks the HOSTNAME only, reusing the same
+// AUTHORITATIVE_URL_HINTS list as sourceAuthorityRank but not that function
+// itself: sourceAuthorityRank matches hints against the full URL, which is
+// fine for its coarser source-*ordering* purpose but too imprecise for an
+// evidentiary gate — a law firm's news article whose URL slug happens to
+// mention "regulator" (describing the story, not its publisher) would
+// otherwise count as authoritative.
+function isAuthoritativeHostname(url: string): boolean {
+  const host = hostnameOf(url);
+  return AUTHORITATIVE_URL_HINTS.some((hint) => host.includes(hint));
+}
+
+function hasAuthoritativeSource(sourceUrls: string[]): boolean {
+  return sourceUrls.some((url) => isAuthoritativeHostname(url));
+}
+
+// Status backstop: the classification prompt already distinguishes
+// FUTURE_OR_PROPOSED from an already-effective regime, but the model can
+// still misclassify one as FUTURE_OR_PROPOSED (e.g. ambiguous wording in a
+// source) despite reporting an effectiveDate/implementationDate that has
+// already passed. Effective/commencement dates the model itself extracted
+// take precedence over its separately-stated status in that case. Dates are
+// free text (AGENTS.md §8: never force a precise date), so this only acts
+// when a date can be confidently parsed as ISO-like ("2020-01-28",
+// "2020-01", "2020") or "Month YYYY" — anything else is left alone rather
+// than guessed at.
+const ISO_LIKE_DATE_RE = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/;
+const MONTH_YEAR_RE = /^([A-Za-z]+)\s+(\d{4})$/;
+
+function parseApproxDateMs(text: string | undefined): number | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+
+  const isoMatch = trimmed.match(ISO_LIKE_DATE_RE);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = isoMatch[2] ? Number(isoMatch[2]) - 1 : 0;
+    const day = isoMatch[3] ? Number(isoMatch[3]) : 1;
+    const ms = Date.UTC(year, month, day);
+    return Number.isNaN(ms) ? null : ms;
+  }
+
+  const monthYearMatch = trimmed.match(MONTH_YEAR_RE);
+  if (monthYearMatch) {
+    const ms = Date.parse(`${monthYearMatch[1]} 1, ${monthYearMatch[2]}`);
+    return Number.isNaN(ms) ? null : ms;
+  }
+
+  return null;
+}
+
+function correctFutureStatus(
+  status: (typeof REGULATORY_STATUSES)[number],
+  effectiveDate: string | null,
+  implementationDate: string | null,
+): (typeof REGULATORY_STATUSES)[number] {
+  if (status !== "FUTURE_OR_PROPOSED") return status;
+  const dateMs = parseApproxDateMs(effectiveDate ?? undefined) ?? parseApproxDateMs(implementationDate ?? undefined);
+  if (dateMs === null || dateMs > Date.now()) return status;
+  return "PASSED_PENDING_OR_ONGOING_OBLIGATIONS";
 }
 
 // A starter set of common alternate names/abbreviations for each supported

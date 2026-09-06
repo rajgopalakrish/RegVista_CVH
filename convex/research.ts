@@ -54,7 +54,10 @@ function escapeRegExp(s: string): string {
 //     for the same regime — but only when 4+ characters long, to avoid
 //     collapsing two differently-named short acts (e.g. "Banking Act" /
 //     "Broadcasting Act") onto the same 2-3 letter initials.
-//  4. Falls back to lowercased, year-stripped free text otherwise.
+//  4. Falls back to lowercased, year-stripped free text of the name with
+//     any parenthetical dropped — a trailing "(Cap 50B)"-style chapter/
+//     citation qualifier shouldn't split "Competition Act 2004" and
+//     "Competition Act (Cap 50B)" into two ledger rows for the same Act.
 // General text normalization throughout — not a curated regulation lookup.
 function canonicalRegimeIdentity(regimeKey: string, jurisdiction?: string): string {
   let name = regimeKey.trim();
@@ -84,7 +87,7 @@ function canonicalRegimeIdentity(regimeKey: string, jurisdiction?: string): stri
     .toLowerCase();
   if (initials.length >= 4) return initials;
 
-  return name
+  return withoutParens
     .toLowerCase()
     .replace(/\b(19|20)\d{2}\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
