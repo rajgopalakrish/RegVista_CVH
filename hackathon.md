@@ -369,3 +369,50 @@ frozen engine. Caught and fixed a double-hedging bug in the first version
 before shipping, by combining all phrases into a single regex pass;
 re-verified against six representative sentences. Frontend typecheck,
 backend typecheck (unaffected), and `npm run build` all pass.
+
+### 2026-09-06 - d2e3529
+Product finalization pass ("prototype toward v1") with the regulatory
+engine explicitly frozen — confirmed via `git diff --stat` at the end
+that zero `convex/*.ts` files were touched. Re-inspected real rendered
+DBS+Singapore, Google+Singapore, and Stripe findings against nine
+requirements (trust consistency, source presentation, the Exposure Map,
+the company brief, finding cards, developments framing, demo-data
+hygiene, cross-sector testing, and a final visual pass):
+
+1. Widened the applicability-hedging logic after finding real gaps the
+   prior pass's phrase list missed live: "falling under", bare "subject
+   to" (no is/are before it), "is obligated", and "must apply"/"must
+   implement" beyond just "must comply with". Found and fixed two real
+   grammar bugs in the widened version before shipping — "will be subject
+   to" and "is directly subject to" were both producing double modals —
+   with a verb-deletion + hedge-insertion approach that never drops the
+   words in between (so "directly" survives).
+2. Decoupled the sourceQuality badge from whichever source link sorted
+   first: live data showed a finding tagged TIER_1_REGULATOR_GOVERNMENT
+   whose actual sources were all vendor/company domains, so pinning the
+   tag to the sorted-first link would have mislabeled a non-regulator URL.
+   Tag now reads as a finding-level fact next to "Sources," not a claim
+   about one specific link.
+3. Exposure Map judged already strong; added a per-lane count, made
+   jurisdiction visually bolder than regulator in each chip, added a
+   hover arrow. Left the lane-grouping key alone after finding real near-
+   duplicate area labels fragmenting the map slightly (documented as a
+   known limitation — a fuzzy-merge heuristic was rejected as too risky,
+   same reasoning as the earlier regime-vs-topic pass).
+4. Company profile confidence now leads with "High/Moderate/Low
+   confidence" instead of a bare score (exact number still on hover).
+5. Finding card jurisdiction bolded for clearer WHERE/WHO scanning.
+6. Developments now show "Relates to {regimeKey}" using data that was
+   already stored but never surfaced — ties enforcement/guidance/news
+   items back to the regime they're about.
+7. DB already held only DBS/Google/Stripe (verified live before assuming
+   cleanup was needed — no test-artifact companies were present). Re-ran
+   Stripe with Global/Auto-detect since its latest run had drifted to a
+   United Kingdom-scoped run instead of the established multi-jurisdiction
+   demo narrative.
+9. Reworded a "check server logs" error message and simplified the
+   results-page jurisdiction display; added a page meta description.
+
+Verified: frontend typecheck and build clean, live site (200 on page +
+both assets) now serves this build via the already-fixed `npm run
+deploy`, and `git diff --stat` confirms the engine is untouched.
