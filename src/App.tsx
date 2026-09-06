@@ -498,8 +498,8 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
         highlightedId={highlightedId}
       />
       <FindingGroup
-        title="Recent Regulatory Developments"
-        subtitle="Enforcement, investigations, guidance, and other developments."
+        title="Regulatory Developments"
+        subtitle="Enforcement, investigations, guidance, and other developments relevant to this company."
         items={recentDevelopments}
         accent="developments"
         highlightedId={highlightedId}
