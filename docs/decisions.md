@@ -845,6 +845,169 @@ before and after the double-hedge fix, confirming the fix and no
 regressions. Per the user's explicit "then stop" instruction, this pass
 did not redeploy or re-run the live E2E pipeline tests.
 
+## 2026-09-06 — Product quality/finalization pass: trust consistency, evidence presentation, map/brief/card polish, demo hygiene
+
+Explicit finalization instruction: move RegVista from hackathon prototype
+toward v1 without touching the research engine (Firecrawl retrieval,
+ontology, jurisdiction selection, applicability/evidence model, schema,
+classification logic — all frozen). Confirmed via `git diff --stat` at
+the end of this pass: only `index.html`, `src/App.tsx`, `src/index.css`
+changed; zero `convex/*.ts` files touched.
+
+**1. Trust/evidence consistency (found via live inspection, not
+speculation).** Re-inspected real rendered findings for DBS+Singapore,
+Google+Singapore, and Stripe (re-run — see item 7) and found the existing
+`presentApplicabilityText` hedging pass (from the prior evidence-
+presentation-cleanup session) missed several real, live phrasings:
+`"falling under"` (gerund — DBS/Payment Services Act), bare `"subject
+to"` with no `is/are` before it (`"a bank subject to Singapore AML
+law"` — DBS/CDSA), `"is obligated"` (DBS/CDSA), and bare `"must <verb>"`
+beyond just `"must comply with"` (`"must apply"` — Stripe). Widened
+`APPLICABILITY_PHRASE_MAP` accordingly; replaced the narrow `"must comply
+with"` entry with a general bare `must` → `may need to` (covers every
+`"must <verb>"` construction in one entry instead of enumerating each).
+
+Caught and fixed two real grammar bugs in the widened logic before
+shipping, both found by re-testing against the actual live sentences
+(not synthetic ones): (a) treating `"subject to"` as one more entry in
+the same phrase-map produced double modals when a verb other than bare
+`is/are` preceded it — `"will be subject to"` → `"will be may be subject
+to"`, `"is directly subject to"` → `"is directly may be subject to"`
+(the adverb "directly" defeated a simpler "verb + subject to" combined-
+phrase regex). Fixed with a two-step approach: a zero-width lookahead
+regex deletes a verb (is/are/was/were/will be/...) that precedes
+`"subject to"` within a few words *without consuming or discarding
+anything in between* (so "directly" survives), then a second pass
+inserts `"may be"` in front of whatever `"subject to"` remains — covering
+the just-stripped-verb case and the bare adjectival case
+(`"a bank subject to X"`) uniformly, with zero information loss. All
+fixes and both discovered bugs were verified via a standalone Node
+script against real captured sentences from DBS/Google/Stripe (not just
+synthetic examples) before and after each fix, then re-verified against
+freshly re-fetched live data at the end of the pass.
+
+**2. Source presentation.** Decoupled the `sourceQuality` tag from the
+specific primary (sorted-first) link. Real evidence this was needed:
+Google's PDPA finding is tagged `sourceQuality=TIER_1_REGULATOR_GOVERNMENT`
+by the engine, but its three actual sources (`cookie-script.com`,
+`cloud.google.com`, `pandectes.io/blog`) are all secondary/vendor
+domains — the engine's per-finding evidence-tier judgment and the code's
+separate per-URL authority-ranking heuristic can disagree, and showing
+"Regulator / government source" physically next to whichever URL
+happened to sort first would have labeled `cookie-script.com` a
+government source, an active overclaim. Moved the tag to sit beside the
+neutral "Sources" label instead — an honest statement about the
+finding's overall evidence tier, not an unverifiable claim about one
+specific link. Primary source remains its own prominent row; secondary
+sources stay collapsed behind the existing `<details>` "+N supporting
+sources" disclosure (unchanged from the prior pass) — no source data
+removed.
+
+**3. Regulatory Exposure Map — assessed as already strong, small
+improvements only** (per the explicit instruction not to force changes
+onto a map that already works): added a regime-count badge per exposure-
+area lane, split the chip's jurisdiction/regulator meta into two visually
+distinct lines (jurisdiction bolder, matching finding cards' new
+treatment — see item 5) so "where" reads as more prominent than "who,"
+and added a hover-revealed arrow as a clearer clickable affordance. Left
+unchanged: the lane-grouping key (still each finding's own
+`regulatoryArea` string) and the deliberate choice not to add fuzzy
+area-name merging — live data surfaced near-duplicate area labels for
+the same regime family (`"Anti-Money Laundering"` vs `"Anti-Money
+Laundering and Countering the Financing of Terrorism"`, `"Banking
+Prudential Capital Regulation"` vs `"Banking and Prudential
+Regulation"`), fragmenting DBS's and Stripe's maps into more lanes than
+ideal — but a general-purpose fuzzy grouping heuristic was rejected for
+the same reason an earlier pass rejected a "genericness" classifier for
+regime names: real compound labels (`"EU AMLR and 6AMLD"`) can look
+exactly like near-duplicates of a shorter label without being one, and
+guessing wrong silently misgroups data rather than failing loudly.
+Documented as a known residual limitation, not fixed.
+
+**4. Company Intelligence Brief.** One change: the confidence badge now
+leads with a qualitative label (`"High confidence"` / `"Moderate
+confidence"` / `"Low confidence"`) instead of a bare `"90/100"` — reads
+like an analyst's assessment rather than raw model output, with the
+exact score still available via a hover tooltip (no information lost).
+The rest of the brief (business model paragraph length, exposure-area
+tag count, footprint line) was judged already close to a 10-second scan
+and left unchanged rather than trimmed further.
+
+**5. Finding cards.** Bolded the jurisdiction portion of the meta line
+so "WHERE does this apply" reads as more visually dominant than "WHO
+regulates it," matching the same jurisdiction/regulator visual split
+added to the exposure map chips. Everything else (badge row, applicability
+indicator, why-it-matters block, dates line) was judged to already
+satisfy the WHAT/WHERE/WHO/WHY/HOW-CONFIDENT/EVIDENCE scan checklist and
+left unchanged.
+
+**6. Recent Regulatory Developments.** Added a "Relates to {regimeKey}"
+line on supporting-development cards (ENFORCEMENT/GUIDANCE/NEWS/etc.)
+that carry a `regimeKey` — using data that was already being persisted
+and used internally for the Exposure Map's enforcement-ring logic, but
+never previously surfaced to the reader. This directly ties a development
+back to the regime it's about (e.g. DBS's MAS penalty finding now visibly
+reads "Relates to Financial Services and Markets Act 2022") instead of
+requiring the reader to mentally cross-reference. No engine change —
+`regimeKey` already existed on every finding.
+
+**7. Demo-data hygiene.** The database already held only DBS, Google, and
+Stripe (no `CurlTest`/`TikTok`/`ByteDance`/`Uber` test artifacts were
+present when this pass started — verified via a live query before
+assuming anything needed deleting, so no delete tooling was added).
+DBS and Google were already Singapore-scoped `done` runs from a prior
+session; Stripe's most recent run was scoped to `United Kingdom` rather
+than the established Global/Auto-detect multi-jurisdiction demo
+narrative used throughout every prior test pass, so it was re-run with
+Global/Auto-detect (a normal user action against the unchanged live
+pipeline, not a code or data-model change).
+
+**8. Cross-sector live test.** Re-inspected all three companies' full
+findings (profile, exposure areas, regimes, sources, applicability
+language, jurisdiction, developments) after the re-run — see the item-1
+and item-3 write-ups above for what that inspection surfaced. Jurisdiction
+accuracy confirmed: DBS/Google findings are 100% Singapore-scoped;
+Stripe's fresh Global run spans US/EU/UK/France as expected for auto-
+detect, unchanged from the jurisdiction-hard-scope behavior verified in
+earlier passes.
+
+**9. Final visual pass.** Fixed two literal "hackathon scaffold" tells:
+the failed-briefing error text read `"Couldn't send — check server
+logs"` (a message written for a developer, not the product's user) →
+`"Couldn't send the briefing. Please try again."`; the results-page
+jurisdiction line showed `"Jurisdiction: Global / Auto-detect"` even
+though "Auto-detect" is a form-control concept the results page doesn't
+need to explain → simplified to `"Jurisdiction: Global"` (the dropdown's
+own option text is unchanged, since explaining the auto-detect behavior
+is exactly its job). Added a plain `<meta name="description">` to
+`index.html` (previously absent).
+
+**Known remaining issues, not fixed (frozen engine, documented rather
+than chased):**
+- A `REGULATION_REGIME` item can still carry a non-empty but generic
+  `regimeKey` (e.g. Stripe's fresh run produced `"US Federal and State
+  Payment Regulation Framework"`) — same residual gap documented in the
+  regime-vs-topic pass; the null-`regimeKey` backstop only catches the
+  unambiguous case.
+- `arctic-intelligence.com` (a private compliance-vendor site) still
+  sometimes gets cited as a secondary source on DBS findings; not
+  demoted by the code-side low-quality-source patterns since it matches
+  none of them, and not touched here since `sourceAuthorityRank` lives in
+  the frozen engine file.
+- Exposure-map lane fragmentation from near-duplicate `regulatoryArea`
+  strings for the same underlying domain (documented above under item 3).
+- A finding's `sourceQuality` tier is a per-finding judgment, not
+  independently verified per-URL — item 2's fix makes the UI honest about
+  this (no longer claims a specific link is regulator-grade), but doesn't
+  change the underlying engine classification, which can occasionally be
+  generous (Google's PDPA regime finding, above).
+
+Verified: `npx tsc -b --noEmit` clean, `npm run build` succeeds, `git
+diff --stat` confirms zero `convex/*.ts` changes, Convex backend deploy
+succeeded, static-hosting frontend deploy succeeded (using the
+`NODE_OPTIONS=--use-env-proxy`-fixed `npm run deploy` script from the
+prior pass), live site returns 200 on the page and both built assets.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator

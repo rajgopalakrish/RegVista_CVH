@@ -255,19 +255,50 @@ const SOURCE_QUALITY_LABELS: Record<string, string> = {
 const HEDGE_WORDS_RE =
   /\b(may|might|could|possibly|potentially|likely|appears? to|is believed|reportedly|is thought|plausibly)\b/i;
 
+// "subject to" gets its own pass, separate from the phrase map below: it
+// can follow many different verbs, optionally with an adverb in between
+// ("is subject to", "is directly subject to", "will be subject to", or
+// no verb at all — "a bank subject to X"). Naively replacing only the
+// two-word "subject to" fragment while leaving a preceding verb untouched
+// produces a double modal ("will be may be subject to", "is directly may
+// be subject to"). Fixed as two steps instead: (1) delete a verb that
+// precedes "subject to" within a few words, via a zero-width lookahead so
+// nothing in between (like "directly") is consumed or lost; (2) insert
+// "may be" in front of whatever "subject to" remains, covering both the
+// just-stripped-verb case and the bare adjectival case uniformly.
+const SUBJECT_TO_TEST_RE = /\bsubject to\b/i;
+const SUBJECT_TO_VERB_RE =
+  /\b(?:is|are|was|were|will\s+be|would\s+be|shall\s+be|remains?|becomes?)\b(?=(?:\s+\S+){0,3}\s+subject to\b)/gi;
+const BARE_SUBJECT_TO_RE = /\bsubject to\b/gi;
+
+function softenSubjectTo(sentence: string): string {
+  const withoutVerb = sentence.replace(SUBJECT_TO_VERB_RE, "");
+  const withHedge = withoutVerb.replace(BARE_SUBJECT_TO_RE, "may be subject to");
+  return withHedge.replace(/\s{2,}/g, " ").replace(/\s+([,.;:])/g, "$1").trim();
+}
+
 // Phrase -> hedged replacement. Built into ONE combined regex (rather than
 // applying each pattern in sequence) so a single scan replaces every match
 // exactly once — sequential per-pattern replacement risks a phrase like
 // "fall under" re-matching inside the "may fall under" text just inserted
 // by the "falls under" pattern, producing "may may fall under".
+//
+// Widened from an initial version scoped only to "must comply with" after
+// inspecting real rendered findings: STRONGLY_INFERRED/POSSIBLE_UNCERTAIN
+// findings also used "must apply"/"must implement" (not just "comply
+// with"), the gerund "falling under", and "is obligated" — none caught by
+// the narrower phrase list. A bare "must" -> "may need to" catches every
+// "must <verb>" construction generically rather than enumerating each one.
 const APPLICABILITY_PHRASE_MAP: Record<string, string> = {
   "falls under": "may fall under",
   "fall under": "may fall under",
-  "is subject to": "may be subject to",
-  "are subject to": "may be subject to",
-  "must comply with": "may need to comply with",
-  "is required to comply with": "may be required to comply with",
-  "are required to comply with": "may be required to comply with",
+  "falling under": "potentially falling under",
+  "fell under": "may have fallen under",
+  must: "may need to",
+  "is required to": "may be required to",
+  "are required to": "may be required to",
+  "is obligated": "may be obligated",
+  "are obligated": "may be obligated",
   "is governed by": "may be governed by",
   "are governed by": "may be governed by",
   "is bound by": "may be bound by",
@@ -288,11 +319,20 @@ function presentApplicabilityText(text: string, evidence: string | undefined): s
     // Already hedged (by the model itself, or by the engine's own
     // designation-claim guardrail) — leave it exactly as written.
     if (HEDGE_WORDS_RE.test(sentence)) return sentence;
-    if (!DEFINITIVE_APPLICABILITY_RE.test(sentence)) return sentence;
-    return sentence.replace(
-      DEFINITIVE_APPLICABILITY_REPLACE_RE,
-      (match) => APPLICABILITY_PHRASE_MAP[match.toLowerCase()] ?? match,
-    );
+    const needsSubjectTo = SUBJECT_TO_TEST_RE.test(sentence);
+    const needsPhraseSwap = DEFINITIVE_APPLICABILITY_RE.test(sentence);
+    if (!needsSubjectTo && !needsPhraseSwap) return sentence;
+    let result = sentence;
+    if (needsSubjectTo) {
+      result = softenSubjectTo(result);
+    }
+    if (needsPhraseSwap) {
+      result = result.replace(
+        DEFINITIVE_APPLICABILITY_REPLACE_RE,
+        (match) => APPLICABILITY_PHRASE_MAP[match.toLowerCase()] ?? match,
+      );
+    }
+    return result;
   });
   return softened.join(" ");
 }
@@ -367,7 +407,7 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
         )}
       </div>
       <p className="requested-jurisdiction">
-        Jurisdiction: <strong>{latestRun?.requestedJurisdiction ?? "Global / Auto-detect"}</strong>
+        Jurisdiction: <strong>{latestRun?.requestedJurisdiction ?? "Global"}</strong>
       </p>
 
       {latestRun?.status === "error" && (
@@ -436,7 +476,7 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
           </button>
           {sendState === "sent" && <span className="sent-ok">Sent!</span>}
           {sendState === "error" && (
-            <span className="sent-error">Couldn't send — check server logs.</span>
+            <span className="sent-error">Couldn't send the briefing. Please try again.</span>
           )}
         </form>
       </div>
@@ -477,12 +517,27 @@ function ExecutiveSummary({
   );
 }
 
+// A bare "72/100" reads like raw model output; a qualitative label reads
+// like an analyst's assessment. The exact score is still one hover away
+// via the title attribute — no information lost, just led with the more
+// scannable form.
+function confidenceLabel(score: number): string {
+  if (score >= 80) return "High confidence";
+  if (score >= 50) return "Moderate confidence";
+  return "Low confidence";
+}
+
 function CompanyProfileCard({ profile }: { profile: Doc<"companyProfiles"> }) {
   return (
     <div className="profile-card">
       <div className="profile-card-header">
         <span className="section-label">Company Intelligence Brief</span>
-        <span className="badge profile-confidence">Confidence {profile.confidence}/100</span>
+        <span
+          className="badge profile-confidence"
+          title={`Profile confidence score: ${profile.confidence}/100`}
+        >
+          {confidenceLabel(profile.confidence)}
+        </span>
       </div>
       <div className="profile-sector-row">
         <strong className="profile-sector">{profile.primarySector}</strong>
@@ -564,7 +619,10 @@ function RegulatoryExposureMap({
       <div className="exposure-map-lanes">
         {areaOrder.map((area) => (
           <div className="exposure-lane" key={area}>
-            <div className="exposure-lane-header">{area}</div>
+            <div className="exposure-lane-header">
+              {area}
+              <span className="exposure-lane-count">{areaMap.get(area)!.length}</span>
+            </div>
             <div className="exposure-lane-chips">
               {areaMap.get(area)!.map((f) => {
                 const isUpcoming = f.status === "FUTURE_OR_PROPOSED";
@@ -582,7 +640,11 @@ function RegulatoryExposureMap({
                   >
                     <span className="regime-chip-name">{f.regimeKey ?? f.title}</span>
                     <span className="regime-chip-meta">
-                      {f.jurisdiction} · {f.regulator}
+                      <span className="regime-chip-jurisdiction">{f.jurisdiction}</span>
+                      <span className="regime-chip-regulator">{f.regulator}</span>
+                    </span>
+                    <span className="regime-chip-arrow" aria-hidden="true">
+                      →
                     </span>
                   </button>
                 );
@@ -657,24 +719,27 @@ function SourcesList({ finding }: { finding: Finding }) {
   if (finding.sources.length === 0) return null;
   const [primary, ...secondary] = finding.sources;
   // sourceQuality is a per-finding evidence-tier judgment, not a per-URL
-  // verification — attaching it to every link in a mixed list (e.g. a
-  // regulator page alongside a vendor blog) would overclaim about sources
-  // that weren't individually confirmed. Anchoring it to just the primary
-  // link (already sorted to the front by the engine's own authority
-  // ranking) keeps the claim honest: "this leading source is regulator-
-  // grade," not "all these sources are."
+  // verification — the engine's own authority ranking (which sorts this
+  // array) is a separate, weaker domain-pattern heuristic, and the two
+  // can disagree (a finding can be tagged TIER_1 while its actual listed
+  // sources are all secondary/vendor domains). Attaching the tag directly
+  // to whichever link happened to sort first would risk labeling a
+  // non-authoritative domain "Regulator / government source" — a real
+  // overclaim. Showing it next to the "Sources" label instead states an
+  // honest, already-true fact ("this finding's evidence tier is X")
+  // without implying any one specific link is individually verified.
   const qualityLabel = finding.sourceQuality ? SOURCE_QUALITY_LABELS[finding.sourceQuality] : null;
   const showQualityTag = qualityLabel && finding.sourceQuality !== "TIER_3_SECONDARY_REPORTING";
 
   return (
     <div className="sources">
-      <span className="field-label">Sources</span>
-      <div className="source-primary-row">
-        <a href={primary.url} target="_blank" rel="noreferrer" className="source-link source-link-lead">
-          {domainOf(primary.url)}
-        </a>
+      <div className="sources-header">
+        <span className="field-label">Sources</span>
         {showQualityTag && <span className="source-quality-tag">{qualityLabel}</span>}
       </div>
+      <a href={primary.url} target="_blank" rel="noreferrer" className="source-link source-link-lead">
+        {domainOf(primary.url)}
+      </a>
       {secondary.length > 0 && (
         <details className="sources-secondary">
           <summary>
@@ -731,9 +796,16 @@ function FindingCard({ finding: f, highlighted }: { finding: Finding; highlighte
       </div>
       <h4 className="finding-title">{f.title}</h4>
       <p className="finding-meta">
-        {f.jurisdiction} · {f.regulator}
+        <strong className="finding-jurisdiction">{f.jurisdiction}</strong> · {f.regulator}
         {f.status && <> · {STATUS_LABELS[f.status] ?? f.status}</>}
       </p>
+      {/* A supporting development (enforcement/guidance/news/etc.) reads as
+          generic news unless it's visibly tied back to the regime it's
+          about — regimeKey already carries this link, just not previously
+          shown. A REGULATION_REGIME item IS the regime, so skip it there. */}
+      {f.itemType && f.itemType !== "REGULATION_REGIME" && f.regimeKey && (
+        <p className="finding-relates-to">Relates to {f.regimeKey}</p>
+      )}
       <ApplicabilityIndicator level={f.applicabilityLevel} evidence={f.applicabilityEvidence} />
       <p className="finding-summary">{presentApplicabilityText(f.summary, f.applicabilityEvidence)}</p>
       <p className="why-it-matters">

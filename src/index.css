@@ -485,6 +485,10 @@ body {
 }
 
 .exposure-lane-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -492,6 +496,17 @@ body {
   text-align: center;
   margin-bottom: 0.65rem;
   font-weight: 600;
+}
+
+.exposure-lane-count {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  color: #6f7a91;
+  background: #1a2030;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
 }
 
 .exposure-lane-chips {
@@ -502,9 +517,8 @@ body {
 
 .regime-chip {
   display: flex;
-  flex-direction: column;
   align-items: flex-start;
-  gap: 0.15rem;
+  gap: 0.4rem;
   padding: 0.5rem 0.65rem;
   border-radius: 8px;
   border: 1px solid #263047;
@@ -522,6 +536,11 @@ body {
   background: #182033;
 }
 
+.regime-chip:hover .regime-chip-arrow {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
 .regime-chip-upcoming {
   border-left-color: #a67c2e;
 }
@@ -531,14 +550,40 @@ body {
 }
 
 .regime-chip-name {
+  display: block;
   font-size: 0.84rem;
   font-weight: 600;
   line-height: 1.25;
 }
 
 .regime-chip-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
   font-size: 0.72rem;
-  color: #9aa3b2;
+  margin-top: 0.15rem;
+}
+
+.regime-chip-jurisdiction {
+  color: #b7c0d6;
+  font-weight: 500;
+}
+
+.regime-chip-regulator {
+  color: #7d879c;
+}
+
+.regime-chip > .regime-chip-name,
+.regime-chip > .regime-chip-meta {
+  flex: 1;
+}
+
+.regime-chip-arrow {
+  color: #4f7cff;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .exposure-map-legend {
@@ -690,6 +735,17 @@ body {
   margin: 0 0 0.55rem;
 }
 
+.finding-jurisdiction {
+  color: #cdd3e0;
+  font-weight: 600;
+}
+
+.finding-relates-to {
+  color: #6f7a91;
+  font-size: 0.78rem;
+  margin: -0.2rem 0 0.55rem;
+}
+
 .finding-summary {
   margin: 0.6rem 0;
 }
@@ -779,15 +835,15 @@ body {
   gap: 0.35rem;
 }
 
-.sources .field-label {
-  margin-bottom: 0.05rem;
-}
-
-.source-primary-row {
+.sources-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.sources-header .field-label {
+  margin-bottom: 0;
 }
 
 .source-quality-tag {
