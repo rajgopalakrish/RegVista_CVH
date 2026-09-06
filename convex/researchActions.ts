@@ -204,13 +204,13 @@ const FindingSchema = z.object({
     .array(
       z.object({
         itemType: z.enum(CLASSIFICATION_ITEM_TYPES).describe(
-          "REGULATION_REGIME: an actual regulation/law/regulatory regime or instrument (e.g. GDPR, the EU DSA). GUIDANCE: official regulator interpretive guidance. CONSULTATION: an open regulatory consultation. PROPOSED_RULE: a bill or proposed rule not yet in force. IMPLEMENTATION: material about effective dates / implementation timelines / compliance deadlines for a regime. ENFORCEMENT: an enforcement action, investigation, or fine. NEWS: credible regulatory/legal news not itself an enforcement action. COMPANY_POLICY: the company's OWN regulatory disclosure/filing describing an obligation imposed on it by an outside authority (e.g. an SEC filing, a DMA compliance report, a money-transmitter license registration) — genuine evidence, not marketing. GENERIC_COMPLIANCE_MARKETING: the company's own product/marketing pages about voluntary certifications (ISO, SOC 2, PCI as a selling point), trust-center pages, or security whitepapers with no named external regulatory obligation — use this whenever the source is the company promoting its own compliance posture rather than describing a real obligation, and it will be discarded.",
+          "REGULATION_REGIME: a SPECIFIC, NAMEABLE regulatory instrument — a named law, regulation, code, directive, notice, act, or framework with an identifiable name (e.g. 'GDPR', 'EU DSA', 'PDPA', 'Banking Act', 'MAS Notice 637', 'PSD3'). Do NOT use this for a broad regulatory topic or domain that has no single identifiable instrument behind it — 'Anti-Money Laundering', 'Financial Services Regulation', and 'Payment System Regulation and AML Oversight' are topics, not regimes, even though they sound regulatory. If the evidence only supports a broad topic/domain and you cannot name the specific instrument, use NEWS instead — never invent a regime name to make a topic look like a named law. GUIDANCE: official regulator interpretive guidance. CONSULTATION: an open regulatory consultation. PROPOSED_RULE: a bill or proposed rule not yet in force. IMPLEMENTATION: material about effective dates / implementation timelines / compliance deadlines for a regime. ENFORCEMENT: an enforcement action, investigation, or fine. NEWS: credible regulatory/legal news not itself an enforcement action — also the correct type for a broad regulatory topic/domain with no specific named instrument. COMPANY_POLICY: the company's OWN regulatory disclosure/filing describing an obligation imposed on it by an outside authority (e.g. an SEC filing, a DMA compliance report, a money-transmitter license registration) — genuine evidence, not marketing. GENERIC_COMPLIANCE_MARKETING: the company's own product/marketing pages about voluntary certifications (ISO, SOC 2, PCI as a selling point), trust-center pages, or security whitepapers with no named external regulatory obligation — use this whenever the source is the company promoting its own compliance posture rather than describing a real obligation, and it will be discarded.",
         ),
         regimeKey: z
           .string()
           .nullable()
           .describe(
-            "Short name of the regulatory regime this item is or relates to (e.g. 'GDPR', 'EU DSA', 'EU DMA', 'EU AI Act', 'PSD2', 'California AB5'). Required whenever itemType is REGULATION_REGIME. For a supporting item (ENFORCEMENT/NEWS/GUIDANCE/etc.), set it to the regime it relates to if there is a clear one, otherwise null.",
+            "Short, specific name of the named regulatory instrument this item is or relates to (e.g. 'GDPR', 'EU DSA', 'EU DMA', 'EU AI Act', 'PSD2', 'PDPA', 'MAS Notice 637', 'California AB5') — not a description of a broad topic area. Required whenever itemType is REGULATION_REGIME: if you cannot name a specific instrument this concisely, that itself is a signal the item is a topic, not a regime — use itemType NEWS instead and leave this null. For a supporting item (ENFORCEMENT/NEWS/GUIDANCE/etc.), set it to the specific regime it relates to if there is a clear one, otherwise null.",
           ),
         jurisdiction: z.string(),
         regulator: z.string().describe(
@@ -264,7 +264,7 @@ const FindingSchema = z.object({
       }),
     )
     .describe(
-      "Return roughly 5-12 of the highest-value items: a mix of the company's most important established regulatory regimes and the most important upcoming/enforcement developments. Do not pad with marginal items just to fill a quota.",
+      "Return only the genuinely high-value items actually supported by the provided sources: a mix of the company's most important established regulatory regimes and the most important upcoming/enforcement developments. There is no target count or quota — 3 well-evidenced, specifically named items are better than 10 that include padding, invented regimes, or generic topics dressed up as regimes. Cap at 12 even if more are plausible.",
     ),
 });
 
@@ -411,7 +411,20 @@ export const run = internalAction({
               "supports the general regime applying to the company's " +
               "sector, say so in general terms and set " +
               "applicabilityEvidence accordingly (see its field " +
-              "description) rather than asserting the specific status.",
+              "description) rather than asserting the specific status.\n\n" +
+              "Regime vs. topic guardrail: REGULATION_REGIME is reserved " +
+              "for a specific, nameable law/regulation/code/directive/" +
+              "notice/framework (e.g. GDPR, PDPA, MAS Notice 637) — never " +
+              "a broad regulatory topic or domain such as 'Anti-Money " +
+              "Laundering', 'Financial Services Regulation', or 'Payment " +
+              "System Regulation and AML Oversight'. If the sources only " +
+              "support a broad topic with no single identifiable " +
+              "instrument, classify it as NEWS instead — never invent a " +
+              "regime name just to make a topic look like a named law. " +
+              "There is no minimum number of findings to return: a " +
+              "smaller set of genuinely well-evidenced, specifically " +
+              "named regimes is better than padding the result with " +
+              "generic topics or weakly evidenced items to hit a count.",
           },
           {
             role: "user",
@@ -493,8 +506,21 @@ export const run = internalAction({
         : candidatesAfterRelevanceFilter;
 
       let neutralizedCount = 0;
+      let downgradedTopicCount = 0;
       const findings = candidatesInScope
         .map((f) => {
+          // Backstop for the same rule already stated in the itemType/
+          // regimeKey field descriptions: a REGULATION_REGIME item without
+          // a specific regimeKey is the model's own signal that it
+          // couldn't name a specific instrument — treat it as a
+          // supporting development (NEWS) rather than trust a fabricated
+          // "regime" through, the same "operationalize the prompt's own
+          // stated rule in code" pattern used for the jurisdiction and
+          // evidence guardrails above.
+          const itemType =
+            f.itemType === "REGULATION_REGIME" && !f.regimeKey ? "NEWS" : f.itemType;
+          if (itemType !== f.itemType) downgradedTopicCount++;
+
           const claimContext = { regimeLabel: f.regimeKey ?? f.title, regulatoryArea: f.regulatoryArea };
           const summary = neutralizeUnsupportedClaims(f.summary, f.applicabilityEvidence, claimContext);
           const whyItMatters = neutralizeUnsupportedClaims(
@@ -504,7 +530,7 @@ export const run = internalAction({
           );
           if (summary !== f.summary || whyItMatters !== f.whyItMatters) neutralizedCount++;
           return {
-            itemType: f.itemType,
+            itemType,
             regimeKey: f.regimeKey ?? undefined,
             jurisdiction: f.jurisdiction,
             regulator: f.regulator,
@@ -546,6 +572,13 @@ export const run = internalAction({
           `dropped ${droppedMarketing} generic-marketing, ${droppedWeak} below relevance ` +
           `threshold, ${droppedOutOfJurisdiction} outside requested jurisdiction; kept ${findings.length}`,
       );
+      if (downgradedTopicCount > 0) {
+        console.warn(
+          `[research:${runId}] downgraded ${downgradedTopicCount} REGULATION_REGIME item(s) to ` +
+            `NEWS: the model classified them as a named regime but left regimeKey empty, its own ` +
+            `signal that it's a broad topic rather than a specific instrument`,
+        );
+      }
       if (neutralizedCount > 0) {
         console.warn(
           `[research:${runId}] rewrote unsupported designation/status prose in ${neutralizedCount} ` +

@@ -535,6 +535,103 @@ demoted — there's no non-hardcoded, low-false-positive way to recognize it
 as a vendor from the URL alone. It stays in the neutral middle tier rather
 than the back, same as an unrecognized real regulator would.
 
+## 2026-09-06 — Regime vs. topic: stop presenting broad regulatory domains as named regimes
+
+User review of live output (a Stripe/Global run in the prior pass literally
+produced `REGULATION_REGIME` items titled "US Payment System Regulation
+and Anti-Money Laundering Oversight" and regime `"Sanctions and Export
+Controls Regime"`) flagged that broad regulatory topics/domains were being
+presented as if they were specific named laws. Fixed in
+`convex/researchActions.ts`, prompt + one narrow code backstop, no schema
+change:
+
+- Sharpened the `itemType` and `regimeKey` Zod field descriptions:
+  `REGULATION_REGIME` is now explicitly defined as requiring a specific,
+  nameable instrument (a named law/regulation/code/directive/notice/
+  framework — "GDPR", "PDPA", "MAS Notice 637"), with the user's own
+  negative examples ("Anti-Money Laundering", "Financial Services
+  Regulation", "Payment System Regulation and AML Oversight") given
+  verbatim as what NOT to classify this way — those should be `NEWS`
+  instead. `regimeKey`'s description now states plainly that being unable
+  to name a specific instrument concisely is itself the signal to use
+  `NEWS`.
+- Added a matching paragraph to the classification system prompt (same
+  "Regime vs. topic guardrail" pattern as the existing applicability-
+  evidence guardrail paragraph) and folded in item 4's ask directly: "There
+  is no minimum number of findings to return... better than padding the
+  result with generic topics... to hit a count." The old top-level schema
+  description said "roughly 5-12" — a floor that plausibly incentivized
+  padding with invented broad-topic "regimes" once genuine specific
+  instruments ran out. Removed the floor entirely; kept only the ceiling
+  (12) and an explicit "3 well-evidenced items is better than 10 with
+  padding" framing.
+- Code-side backstop, same "operationalize the prompt's own stated rule"
+  pattern used for the jurisdiction and evidence guardrails: if
+  `itemType === "REGULATION_REGIME"` and the model itself left `regimeKey`
+  null (its own admission it couldn't name a specific instrument), the
+  item is downgraded to `itemType: "NEWS"` before being persisted — no new
+  itemType/bucket needed, since `NEWS` already falls into the frontend's
+  existing "Recent Regulatory Developments" catch-all group. Deliberately
+  narrow: this only catches the unambiguous case (empty `regimeKey`), not
+  a "genericness" judgment on a *non-empty* regimeKey — a broader regex
+  heuristic was considered and rejected for the same reason the earlier
+  source-quality pass rejected a domain-based downgrade heuristic: real
+  named instruments can legitimately be compound/multi-word (e.g. "EU AML
+  Regulation (AMLR) and AML Directive (6AMLD)", both real specific
+  citations joined by "and"), so a text-shape heuristic risks
+  misclassifying a genuinely specific citation as a vague topic.
+
+Source-provenance (item 2 of this pass's request) and the applicability
+evidence model (item 3) needed no code change — both were already
+implemented in the prior pass (`sourceAuthorityRank`'s three-tier
+promote/neutral/demote design already prefers regulator sources as lead
+without discarding secondary evidence or penalizing an unrecognized
+regulator; `neutralizeUnsupportedClaims` already preserves the
+DIRECTLY_EVIDENCED / STRONGLY_INFERRED / POSSIBLE_UNCERTAIN model). Both
+re-verified, not regressed, in this pass's live tests below.
+
+Verified live (Google+Singapore, DBS Bank+Singapore, TikTok+Singapore,
+Stripe+Global/Auto-detect):
+
+- Google+Singapore went from 3-4 findings including a generic "Singapore
+  Competition Act" filler item (prior pass) to 2 tightly-scoped findings,
+  both with specific `regimeKey="PDPA"` — no padding, no invented regime.
+- TikTok+Singapore's items all carry specific regimeKeys (`"Personal Data
+  Protection Act (PDPA)"`, and a compound-but-genuinely-specific
+  `"Online Safety (Miscellaneous Amendments) Act 2022 and Broadcasting Act
+  1994 (online safety part)"` — two real named acts, not a vague topic).
+  Source ordering correctly put `pdpc.gov.sg`/`imda.gov.sg` first ahead of
+  TikTok's own `developers.tiktok.com` blog and a law firm's site (kept as
+  supporting, not discarded).
+- DBS Bank+Singapore: primary-source provenance confirmed working —
+  the MAS enforcement finding lists `mas.gov.sg` before
+  `globalinvestigationsreview.com`. Also surfaced the residual gap
+  documented below: one finding kept `regimeKey="MAS AML/CFT Notice"` —
+  non-empty, so the null-check backstop didn't fire, and it's more
+  generic than the gold example ("MAS Notice 637") without being as
+  vague as the pre-fix baseline.
+- Stripe+Global/Auto-detect: 9 findings spanning US/UK/EU (multi-
+  jurisdiction auto-detect unaffected), applicability hedging intact on
+  every `STRONGLY_INFERRED`/`POSSIBLE_UNCERTAIN` item, and no
+  maximally-vague compound titles like the pre-fix "US Payment System
+  Regulation and Anti-Money Laundering Oversight" — though a few
+  moderately-generic-but-non-empty regimeKeys remain (see below).
+
+Known residual gap, intentionally not chased further (matches AGENTS.md's
+"smallest reliable change" and this pass's explicit "cleanup only, do not
+redesign"): a `REGULATION_REGIME` item can still carry a moderately broad
+regimeKey when the model provides *something* non-empty but not maximally
+specific (e.g. `"US State Money Transmitter Licensing"`, `"MAS AML/CFT
+Notice"` rather than a precise instrument name) — the null-regimeKey
+backstop only catches the unambiguous case. A stronger heuristic (word
+count, presence of "and", generic trailing nouns like "Oversight") was
+considered and rejected: it would risk misclassifying legitimately
+compound specific citations (as seen live this pass with the TikTok
+Online Safety finding and the Stripe EU AMLR/6AMLD finding) as vague
+topics. The prompt sharpening measurably reduced the worst cases (no more
+fully-invented mega-compound titles); the remaining gap is a judgment call
+best left to further prompt iteration, not a crude regex.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
