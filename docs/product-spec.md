@@ -20,14 +20,20 @@ RegVista's core question: *what regulatory regimes, obligations,
 consultations, proposed changes, guidance, and enforcement developments
 should this company be watching?*
 
-1. User enters a company (name + optional context: industry, HQ country/state,
-   website).
+1. User enters a company (name + optional industry hint) and optionally
+   selects a **jurisdiction** to scope the research to (Global / Auto-detect,
+   or one of a starter list — Singapore, EU, UK, US, Australia, India,
+   China — easy to extend without restructuring anything).
 2. RegVista infers a lightweight **company profile** (sector, business
    model, geographic footprint, regulatory exposure areas) via OpenAI —
-   a useful exposure map, not a full corporate-intelligence dossier.
+   a useful exposure map, not a full corporate-intelligence dossier. This
+   step is jurisdiction-agnostic; jurisdiction only enters from here on.
 3. RegVista researches the company's regulatory landscape using Firecrawl
-   (retrieval driven by the inferred exposure areas/jurisdictions, not a
-   single generic query) and OpenAI (structured extraction/classification).
+   (retrieval driven by the inferred exposure areas, and by the selected
+   jurisdiction when one was requested — replacing the auto-detected
+   jurisdiction for every query rather than being filtered in afterward)
+   and OpenAI (structured extraction/classification, told the requested
+   jurisdiction explicitly so it prioritizes findings scoped to it).
 4. RegVista shows the company's regulatory landscape as a hierarchy, not a
    flat list of findings:
    - **Company profile**: sector, business model, exposure areas, confidence.

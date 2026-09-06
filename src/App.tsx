@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
+import { JURISDICTIONS } from "../convex/schema";
 import type { Doc, Id } from "../convex/_generated/dataModel";
+
+const AUTO_DETECT = "";
 
 export default function App() {
   const [companyId, setCompanyId] = useState<Id<"companies"> | null>(null);
@@ -33,6 +36,7 @@ function CompanyPicker({
 
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
+  const [jurisdiction, setJurisdiction] = useState(AUTO_DETECT);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -45,7 +49,13 @@ function CompanyPicker({
         industry: industry.trim() || undefined,
       });
       onSelect(newCompanyId);
-      await startResearch({ companyId: newCompanyId });
+      await startResearch({
+        companyId: newCompanyId,
+        jurisdiction:
+          jurisdiction === AUTO_DETECT
+            ? undefined
+            : (jurisdiction as (typeof JURISDICTIONS)[number]),
+      });
       setName("");
       setIndustry("");
     } finally {
@@ -66,6 +76,18 @@ function CompanyPicker({
           value={industry}
           onChange={(e) => setIndustry(e.target.value)}
         />
+        <select
+          value={jurisdiction}
+          onChange={(e) => setJurisdiction(e.target.value)}
+          aria-label="Jurisdiction"
+        >
+          <option value={AUTO_DETECT}>Global / Auto-detect</option>
+          {JURISDICTIONS.map((j) => (
+            <option key={j} value={j}>
+              {j}
+            </option>
+          ))}
+        </select>
         <button type="submit" disabled={submitting || !name.trim()}>
           {submitting ? "Starting research…" : "Research"}
         </button>
@@ -182,6 +204,11 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
           {latestRun.status === "error" && latestRun.error
             ? ` — ${latestRun.error}`
             : ""}
+        </p>
+      )}
+      {latestRun && (
+        <p className="requested-jurisdiction">
+          Jurisdiction: <strong>{latestRun.requestedJurisdiction ?? "Global / Auto-detect"}</strong>
         </p>
       )}
 

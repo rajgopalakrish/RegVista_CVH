@@ -286,6 +286,66 @@ completely different regulatory domain set than Google's, driven entirely
 by the inferred sector/exposure profile rather than any per-company
 hardcoding.
 
+## 2026-09-06 — Added jurisdiction selection; it replaces, not filters, retrieval
+
+Added an optional jurisdiction selector (`convex/schema.ts` `JURISDICTIONS`:
+Singapore, European Union, United Kingdom, United States, Australia,
+India, China — a plain array, so adding one more is a one-line change).
+`researchRuns` gained `requestedJurisdiction`; `research.start` and
+`researchActions.run` both take an optional `jurisdiction` arg.
+
+The important design choice (per explicit instruction: "do not simply
+retrieve global results and filter them afterward") is that when a
+jurisdiction is requested, it **replaces** the profile-derived jurisdiction
+in every query `buildSearchQueries` builds — regime/law, guidance/
+consultation, enforcement, second-exposure-area, and implementation/
+effective-date framing are all anchored to it. There's deliberately no
+separate "secondary jurisdiction" query when one is requested (auto-detect
+still uses the profile's own footprint for a secondary query) — mixing in
+the profile's other footprint jurisdictions is exactly the "silently mixed
+unrelated jurisdictions" the instruction said to avoid. Company profiling
+(Stage 1) stays jurisdiction-agnostic per the given hierarchy diagram
+(`Company → sector → exposure profile → SELECTED JURISDICTION → regimes`);
+jurisdiction only enters at retrieval and classification. The
+classification prompt is told the requested jurisdiction explicitly and
+instructed to prioritize it, allow an occasional strongly-evidenced item
+from elsewhere without relabeling its jurisdiction field, and not let such
+items crowd out the requested one.
+
+Source-quality cleanup: a general (non-company-specific) `isUsableSource`
+filter drops noisy/auto-generated-looking source titles (e.g. "592
+Research Paper") and non-http(s) URLs before they can ever be cited, and a
+`sourceAuthorityRank` sort puts a `.gov`/`.europa.eu`/regulator-domain
+source first within a finding's `sources` array so it reads as primary
+evidence.
+
+Considered and rejected: automatically downgrading a finding's
+`sourceQuality` in code when none of its sources match a domain-authority
+pattern. Testing surfaced a real case (the Irish Data Protection
+Commission's own site, `dataprotection.ie`) that is genuinely TIER_1 but
+matches none of the domain hints (no `.gov`, no "authority" in the name) —
+a code-side downgrade would have mislabeled a correct classification while
+trying to fix an incorrect one. Fixed the actual root cause instead:
+sharpened the `sourceQuality` field's own description with concrete
+good/bad examples (a private compliance consultancy site is TIER_3 even
+when it accurately describes a real regulation). This measurably improved
+citations in the same test run (BIS.org and mas.gov.sg used correctly
+where a prior run hadn't), though one vendor-site case
+(`arctic-intelligence.com`) still gets mislabeled TIER_1 sometimes — see
+demo-script.md / the final report for this pass; logged as a known
+weakness rather than chased further, per "do one focused cleanup."
+
+Verified live: ByteDance + European Union produced 5/5 EU-scoped findings
+(DSA and GDPR as TIER_1 REGULATION_REGIME items from `ec.europa.eu` and
+`dataprotection.ie`, the real €530M Irish DPC GDPR fine as a supporting
+ENFORCEMENT item tagged `regime=GDPR`) with no US/China/India footprint
+noise despite the profile listing those jurisdictions. DBS Bank +
+Singapore produced an MAS AML/CFT enforcement action naming DBS
+specifically, the Payment Services Act, and Basel III implementation, all
+Singapore-scoped. Stripe with Global/Auto-detect reproduced the
+pre-existing multi-jurisdiction discovery behavior (US/EU/UK spread)
+unchanged, confirming auto-detect wasn't regressed.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator

@@ -10,6 +10,7 @@ import { api, internal } from "./_generated/api";
 import {
   APPLICABILITY_LEVELS,
   ITEM_TYPES,
+  jurisdictionValidator,
   REGULATORY_STATUSES,
   SOURCE_QUALITY_TIERS,
 } from "./schema";
@@ -103,15 +104,31 @@ async function inferCompanyProfile(
 // inferred profile's own exposure areas and geographic footprint — nothing
 // here names a specific company's regulations, so the same logic drives
 // retrieval for any company.
+//
+// When the user explicitly requests a jurisdiction, it replaces the
+// profile-derived jurisdiction for every query (not just appended to it):
+// that's what makes the selection materially drive retrieval rather than
+// retrieving globally and filtering afterward. There is deliberately no
+// separate "secondary jurisdiction" query in that case — mixing in the
+// profile's other footprint jurisdictions is exactly the "silently mixed
+// unrelated jurisdictions" this must avoid. Auto-detect (no requested
+// jurisdiction) keeps the previous behavior of using the profile's own
+// footprint for both a primary and secondary jurisdiction query.
 // ---------------------------------------------------------------------------
 
-function buildSearchQueries(companyName: string, profile: Profile): string[] {
+function buildSearchQueries(
+  companyName: string,
+  profile: Profile,
+  requestedJurisdiction?: string,
+): string[] {
   const exposures = profile.regulatoryExposureAreas.slice(0, 3);
-  const jurisdictions = profile.geographicFootprint.filter(
+  const footprintJurisdictions = profile.geographicFootprint.filter(
     (j) => j.toLowerCase() !== "global",
   );
-  const primaryJurisdiction = jurisdictions[0];
-  const secondaryJurisdiction = jurisdictions[1];
+  const primaryJurisdiction = requestedJurisdiction ?? footprintJurisdictions[0];
+  const secondaryJurisdiction = requestedJurisdiction
+    ? undefined
+    : footprintJurisdictions[1];
 
   const queries: string[] = [];
 
@@ -126,16 +143,27 @@ function buildSearchQueries(companyName: string, profile: Profile): string[] {
   // Official regulator guidance, consultations, and proposed rules.
   if (exposures[0]) {
     queries.push(
-      `${companyName} ${exposures[0]} regulator guidance OR consultation OR "proposed rule"`,
+      [companyName, primaryJurisdiction, exposures[0], 'regulator guidance OR consultation OR "proposed rule"']
+        .filter(Boolean)
+        .join(" "),
     );
   }
 
-  // Enforcement/investigation — kept broad rather than exposure-scoped,
-  // since enforcement search benefits from not over-narrowing.
-  queries.push(`${companyName} regulatory investigation enforcement fine penalty`);
+  // Enforcement/investigation. Kept exposure-unscoped (not narrowed to one
+  // exposure area) since enforcement search benefits from staying broad —
+  // but still anchored to the requested/primary jurisdiction so an
+  // explicit jurisdiction selection isn't diluted by unrelated-country
+  // enforcement noise.
+  queries.push(
+    [companyName, primaryJurisdiction, "regulatory investigation enforcement fine penalty"]
+      .filter(Boolean)
+      .join(" "),
+  );
 
   // A second exposure area, optionally anchored to a secondary jurisdiction
-  // (e.g. a US company's EU exposure), to widen jurisdictional coverage.
+  // (e.g. a US company's EU exposure) when auto-detecting; anchored to the
+  // same requested jurisdiction when one was explicitly selected, to widen
+  // exposure-area coverage without widening jurisdiction.
   if (exposures[1]) {
     queries.push(
       [companyName, secondaryJurisdiction ?? primaryJurisdiction, exposures[1], "regulation"]
@@ -147,7 +175,9 @@ function buildSearchQueries(companyName: string, profile: Profile): string[] {
   // Implementation/effective-date material for the top exposure area.
   if (exposures[0]) {
     queries.push(
-      `${companyName} ${exposures[0]} "effective date" OR implementation OR "compliance deadline"`,
+      [companyName, primaryJurisdiction, exposures[0], '"effective date" OR implementation OR "compliance deadline"']
+        .filter(Boolean)
+        .join(" "),
     );
   }
 
@@ -214,7 +244,7 @@ const FindingSchema = z.object({
             "Connect company -> sector/business activity -> regulatory regime, specific to this company (e.g. 'This company's operation of large online platforms and advertising services creates exposure to EU digital-platform regulation'). Not generic boilerplate like 'compliance builds trust'.",
           ),
         sourceQuality: z.enum(SOURCE_QUALITY_TIERS).describe(
-          "TIER_1_REGULATOR_GOVERNMENT: an official regulator/government/legislation-portal publication. TIER_2_OFFICIAL_GUIDANCE_CONSULTATION: an official consultation/guidance portal. TIER_3_SECONDARY_REPORTING: high-quality secondary reporting (reputable news/legal analysis) or the company's own disclosure/filing.",
+          "Judge this by who actually publishes the URL, not by how accurate or well-written the content is. TIER_1_REGULATOR_GOVERNMENT: the regulator/government/legislature's own site (e.g. mas.gov.sg, dataprotection.ie, digital-strategy.ec.europa.eu, ico.org.uk, legislation.gov.uk — official domains vary by country and are not always '.gov'). TIER_2_OFFICIAL_GUIDANCE_CONSULTATION: an official consultation/guidance portal, still government/regulator-run. TIER_3_SECONDARY_REPORTING: everything else that is not the regulator's own publication — reputable news, law-firm analysis, encyclopedic sources (e.g. Wikipedia), and, critically, private compliance/RegTech consultancy sites that summarize regulations as marketing content. A third-party site accurately describing a law is still TIER_3, never TIER_1 — only the regulator's own domain earns TIER_1.",
         ),
         publicationDate: z.string().nullable().describe("As stated by the source, in whatever precision it gives (e.g. 'March 2025'). Null if unknown — never invent a date."),
         effectiveDate: z.string().nullable(),
@@ -241,8 +271,10 @@ export const run = internalAction({
   args: {
     runId: v.id("researchRuns"),
     companyId: v.id("companies"),
+    // Unset = Global / Auto-detect.
+    jurisdiction: v.optional(jurisdictionValidator),
   },
-  handler: async (ctx, { runId, companyId }) => {
+  handler: async (ctx, { runId, companyId, jurisdiction }) => {
     try {
       await ctx.runMutation(internal.research.updateRunStatus, {
         runId,
@@ -276,8 +308,11 @@ export const run = internalAction({
 
       // --- Stage 2: exposure-driven retrieval ---
       const firecrawl = new Firecrawl({ apiKey: requireEnv("FIRECRAWL_API_KEY") });
-      const searchQueries = buildSearchQueries(company.name, profile);
-      console.log(`[research:${runId}] search queries`, searchQueries);
+      const searchQueries = buildSearchQueries(company.name, profile, jurisdiction);
+      console.log(
+        `[research:${runId}] jurisdiction=${jurisdiction ?? "auto-detect"} search queries`,
+        searchQueries,
+      );
 
       const searchResults = await Promise.all(
         searchQueries.map((query) =>
@@ -303,10 +338,14 @@ export const run = internalAction({
           seenUrls.add(url);
           return true;
         })
+        // Drop noisy/unusable titles (e.g. "592 Research Paper") before
+        // they can ever be cited as evidence — never present a source a
+        // reader couldn't make sense of at a glance.
+        .filter((doc) => isUsableSource(doc.metadata?.title, doc.metadata?.url))
         // Bound the prompt: five queries can return up to 20 raw results.
         .slice(0, 14);
       console.log(
-        `[research:${runId}] retrieval: ${rawCount} raw, ${documents.length} scrapeable+deduped sources`,
+        `[research:${runId}] retrieval: ${rawCount} raw, ${documents.length} scrapeable+deduped+usable sources`,
       );
 
       if (documents.length === 0) {
@@ -364,18 +403,28 @@ export const run = internalAction({
               `\nBusiness model: ${profile.businessModel}\n` +
               `Geographic footprint: ${profile.geographicFootprint.join(", ")}\n` +
               `Regulatory exposure areas: ${profile.regulatoryExposureAreas.join(", ")}\n` +
+              (jurisdiction
+                ? `\nRequested jurisdiction: ${jurisdiction}. This research is scoped to ` +
+                  `${jurisdiction} — prioritize regimes/developments that apply there. Only ` +
+                  `include an item from a different jurisdiction if the evidence for it is ` +
+                  `unusually strong and directly relevant to the company; set its jurisdiction ` +
+                  `field to where it actually applies (never relabel it as ${jurisdiction}), and ` +
+                  `do not let such items crowd out ${jurisdiction}-specific findings.\n`
+                : "") +
               "\nSources (JSON array, each with an index, url, title, and " +
               "scraped content):\n" +
               JSON.stringify(sourcesForPrompt) +
               "\n\nBuild this company's regulatory landscape: the " +
               "regulatory regimes/instruments that actually apply given its " +
-              "sector and business activity above, plus the most important " +
-              "upcoming changes and recent enforcement/developments. Prefer " +
-              "regulator/government publications and official " +
-              "guidance/consultation portals over secondary reporting, and " +
-              "prefer secondary reporting over the company's own pages. " +
-              "For each finding, set sourceUrls to the url(s) (verbatim, " +
-              "from the sources above) that support it.",
+              "sector and business activity above" +
+              (jurisdiction ? ` within ${jurisdiction}` : "") +
+              ", plus the most important upcoming changes and recent " +
+              "enforcement/developments. Prefer regulator/government " +
+              "publications and official guidance/consultation portals " +
+              "over secondary reporting, and prefer secondary reporting " +
+              "over the company's own pages. For each finding, set " +
+              "sourceUrls to the url(s) (verbatim, from the sources above) " +
+              "that support it.",
           },
         ],
         response_format: zodResponseFormat(FindingSchema, "regulatory_landscape"),
@@ -421,10 +470,14 @@ export const run = internalAction({
           implementationDate: f.implementationDate ?? undefined,
           consultationDeadline: f.consultationDeadline ?? undefined,
           reportingDeadline: f.reportingDeadline ?? undefined,
+          // Where a finding cites more than one source, put the most
+          // authoritative one first so it reads as the primary evidence
+          // and the rest as supporting.
           sources: f.sourceUrls
             .map((url) => urlToSource.get(url))
             .filter((s): s is { url: string; title: string } => Boolean(s))
-            .map((s) => ({ ...s, retrievedAt })),
+            .map((s) => ({ ...s, retrievedAt }))
+            .sort((a, b) => sourceAuthorityRank(a.url) - sourceAuthorityRank(b.url)),
         }))
         // AGENTS.md §8: never present a finding without evidence.
         .filter((f) => f.sources.length > 0);
@@ -454,6 +507,40 @@ export const run = internalAction({
     }
   },
 });
+
+// Rejects sources with a noisy/auto-generated-looking title (e.g. "592
+// Research Paper", "Untitled", a bare filename) or an unusable URL, before
+// they can ever be cited as evidence. General heuristics only — nothing
+// here is specific to any company or regulation.
+const JUNK_TITLE_PATTERN = /^(untitled|no title|document|research paper|pdf|\d+)\b/i;
+
+function isUsableSource(title: string | undefined, url: string | undefined): boolean {
+  if (!url || !/^https?:\/\//i.test(url)) return false;
+  const trimmed = (title ?? "").trim();
+  if (trimmed.length < 6) return false;
+  if (JUNK_TITLE_PATTERN.test(trimmed)) return false;
+  return true;
+}
+
+// Sorts a finding's sources so an official regulator/government domain
+// reads as the primary evidence and everything else as supporting —
+// generic domain-pattern matching, not a per-company/per-regulation list.
+const AUTHORITATIVE_URL_HINTS = [
+  ".gov",
+  ".europa.eu",
+  "government",
+  "regulator",
+  "authority",
+  "commission",
+  "ministry",
+  "parliament",
+  "legislation",
+];
+
+function sourceAuthorityRank(url: string): number {
+  const lower = url.toLowerCase();
+  return AUTHORITATIVE_URL_HINTS.some((hint) => lower.includes(hint)) ? 0 : 1;
+}
 
 // Models sometimes return a confidence-like field as a 0-1 fraction despite
 // being told 0-100 (e.g. 0.95 instead of 95). Rescale rather than let a

@@ -31,7 +31,8 @@ header h1 {
   margin: 1.5rem 0 0.75rem;
 }
 
-.company-picker input {
+.company-picker input,
+.company-picker select {
   flex: 1;
   min-width: 160px;
   padding: 0.55rem 0.7rem;
@@ -103,6 +104,12 @@ header h1 {
 .run-status-done {
   background: #16321f;
   color: #6fe08c;
+}
+
+.requested-jurisdiction {
+  color: #9aa3b2;
+  font-size: 0.85rem;
+  margin: 0.4rem 0 1rem;
 }
 
 .profile-card {

@@ -51,6 +51,23 @@ export const sourceQualityValidator = v.union(
   ...SOURCE_QUALITY_TIERS.map((t) => v.literal(t)),
 );
 
+// A starter set of jurisdictions a user can explicitly scope research to.
+// "Global / Auto-detect" isn't in this list — it's the absence of a
+// requested jurisdiction (research.start's `jurisdiction` arg is optional),
+// so adding a new one here is the only change needed to offer it.
+export const JURISDICTIONS = [
+  "Singapore",
+  "European Union",
+  "United Kingdom",
+  "United States",
+  "Australia",
+  "India",
+  "China",
+] as const;
+export const jurisdictionValidator = v.union(
+  ...JURISDICTIONS.map((j) => v.literal(j)),
+);
+
 export default defineSchema({
   companies: defineTable({
     name: v.string(),
@@ -71,6 +88,10 @@ export default defineSchema({
     error: v.optional(v.string()),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
+    // Unset = Global / Auto-detect (the profile's own geographic footprint
+    // drives retrieval). Set = that jurisdiction becomes the primary
+    // research scope for this run.
+    requestedJurisdiction: v.optional(jurisdictionValidator),
   }).index("by_companyId", ["companyId"]),
 
   // A lightweight exposure map, not a full company-intelligence profile —

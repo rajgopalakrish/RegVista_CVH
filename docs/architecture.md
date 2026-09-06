@@ -37,6 +37,10 @@ researchRuns: {
   error?: string
   startedAt: number
   finishedAt?: number
+  // Unset = Global / Auto-detect. One of JURISDICTIONS (schema.ts) when
+  // the user explicitly scoped this run to a jurisdiction.
+  requestedJurisdiction?: "Singapore" | "European Union" | "United Kingdom"
+    | "United States" | "Australia" | "India" | "China"
 }
 
 companyProfiles: {

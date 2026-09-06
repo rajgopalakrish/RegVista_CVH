@@ -4,21 +4,28 @@ import { internal } from "./_generated/api";
 import {
   applicabilityLevelValidator,
   itemTypeValidator,
+  jurisdictionValidator,
   regulatoryStatusValidator,
   sourceQualityValidator,
 } from "./schema";
 
 export const start = mutation({
-  args: { companyId: v.id("companies") },
-  handler: async (ctx, { companyId }) => {
+  args: {
+    companyId: v.id("companies"),
+    // Omit for Global / Auto-detect.
+    jurisdiction: v.optional(jurisdictionValidator),
+  },
+  handler: async (ctx, { companyId, jurisdiction }) => {
     const runId = await ctx.db.insert("researchRuns", {
       companyId,
       status: "pending",
       startedAt: Date.now(),
+      requestedJurisdiction: jurisdiction,
     });
     await ctx.scheduler.runAfter(0, internal.researchActions.run, {
       runId,
       companyId,
+      jurisdiction,
     });
     return runId;
   },
