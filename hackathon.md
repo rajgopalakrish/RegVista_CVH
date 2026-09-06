@@ -205,3 +205,46 @@ fact. The run still returned 8 useful findings overall (DMA, DSA, 3 GDPR
 items, an EU consumer-protection complaint, the Disinformation Code of
 Practice, and a GDPR procedural-regulation proposal) — the guardrail added
 honesty without deleting uncertain-but-useful results.
+
+### 2026-09-06 - 97669f1, b70716c
+Final targeted quality pass on three real outputs (Google+Singapore,
+TikTok+Singapore, ByteDance+EU) before freezing the regulatory core. Four
+fixes, no schema/architecture changes:
+
+1. Explicit jurisdiction is now a HARD scope, not a soft preference: added
+   a code-side filter (`jurisdictionMatchesRequested`, with EU/UK/US-style
+   aliases and word-boundary matching) that drops any finding whose
+   jurisdiction doesn't match the one the user explicitly selected, before
+   it's ever persisted — an EU DMA item can no longer surface in a
+   Singapore run's landscape. A genuinely global/international item still
+   passes through.
+2. The "caveat but still assert the claim" bug from the previous pass: the
+   old fix only prepended a disclaimer in front of the model's own
+   unhedged sentence, so the DMA finding still read "...sources don't
+   confirm this... [company] has been designated as a gatekeeper..." in
+   one breath. Replaced with `neutralizeUnsupportedClaims`, which finds
+   the actual offending sentence and rewrites it in place with a generic
+   hedge built from the finding's own regime/area fields — no
+   company/regulation-specific hardcoding.
+3. Reset the jurisdiction dropdown after a successful submission in
+   `App.tsx` so it can't read as if a previous company's jurisdiction still
+   applies while viewing a different company's historical run (the
+   displayed "Jurisdiction:" line already correctly read that run's own
+   `requestedJurisdiction`, not form state).
+4. Extended `sourceAuthorityRank` with a demoted tier for recognizable
+   low-quality sources (Wikipedia, a `/blog/`-style vendor URL path, a
+   company's own domain via `company.name`) without ever guessing at
+   *promoting* an unfamiliar domain — so an unrecognized-but-legitimate
+   regulator like `dataprotection.ie` is never penalized.
+
+Verified live end-to-end after Firecrawl credits (briefly exhausted mid-pass,
+then topped up) were restored: Google+Singapore returned only
+Singapore-jurisdiction findings on two separate runs, with the second run
+(after the source-ranking fix) correctly demoting `cloud.google.com` and
+two `cookieyes.com/blog/...`-style vendor sources that the first run had
+left unranked; ByteDance+EU's DMA finding now reads only the generic hedge
+sentence with no "designated as a gatekeeper" assertion anywhere, while
+DSA and all three GDPR findings remained useful and appropriately
+supported; Stripe with Global/Auto-detect returned 8 findings spanning
+Global/US/EU/UK, confirming multi-jurisdiction discovery is unaffected
+when no jurisdiction is requested.
