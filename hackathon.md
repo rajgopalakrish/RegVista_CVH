@@ -248,3 +248,37 @@ DSA and all three GDPR findings remained useful and appropriately
 supported; Stripe with Global/Auto-detect returned 8 findings spanning
 Global/US/EU/UK, confirming multi-jurisdiction discovery is unaffected
 when no jurisdiction is requested.
+
+### 2026-09-06 - ffd13bc
+Final regulatory-core cleanup pass: stopped `REGULATION_REGIME` items from
+being invented out of broad regulatory topics — a prior live Stripe run
+had produced items titled "US Payment System Regulation and Anti-Money
+Laundering Oversight" and regime `"Sanctions and Export Controls Regime"`,
+neither a real nameable instrument. Sharpened the `itemType`/`regimeKey`
+field descriptions and system prompt so `REGULATION_REGIME` requires a
+specific named law/regulation/code/notice (GDPR, PDPA, MAS Notice 637),
+with the user's own examples of what's NOT a regime built in verbatim; a
+`REGULATION_REGIME` item the model itself left `regimeKey` null on is
+downgraded to `NEWS` in code (falls into the existing "Recent Regulatory
+Developments" group, no new bucket). Also dropped the schema's "roughly
+5-12" floor that likely pressured padding once real instruments ran out —
+kept only a 12-item ceiling with explicit "fewer well-evidenced items
+beats padding" framing. Source-provenance ordering and the applicability
+evidence model needed no changes (both already correct from the prior
+pass) and were re-verified, not regressed.
+
+Verified live: Google+Singapore went from 3-4 findings including a filler
+"Singapore Competition Act" item to 2 tightly-scoped PDPA findings with no
+padding; TikTok+Singapore's regimes all carry specific names (including a
+compound-but-genuinely-specific "Online Safety (Miscellaneous Amendments)
+Act 2022 and Broadcasting Act 1994" citing two real acts, correctly kept)
+with `pdpc.gov.sg`/`imda.gov.sg` correctly ordered ahead of TikTok's own
+blog and a law firm's site; DBS Bank+Singapore confirmed primary-source
+provenance (`mas.gov.sg` before a secondary news source) and surfaced one
+residual non-empty-but-still-somewhat-generic regimeKey
+(`"MAS AML/CFT Notice"`) that the null-check backstop doesn't catch —
+documented as a known, intentionally not-chased-further gap rather than
+risking a text-shape heuristic that could misclassify genuinely compound
+specific citations; Stripe+Global/Auto-detect returned 9 findings across
+US/UK/EU with no maximally-vague compound titles and applicability
+hedging intact throughout.
