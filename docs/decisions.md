@@ -414,6 +414,127 @@ consumer-protection complaint, the strengthened Disinformation Code of
 Practice, a GDPR procedural-regulation proposal) — the guardrail added
 honesty, it didn't delete uncertain-but-useful results.
 
+## 2026-09-06 — Final targeted quality pass: hard jurisdiction scope, real claim rewriting, source demotion
+
+User review of three real outputs (Google+Singapore, TikTok+Singapore,
+ByteDance+EU) found the architecture strong but flagged four remaining
+issues before freezing the regulatory core. All four fixed in
+`convex/researchActions.ts` / `src/App.tsx`, no schema or architecture
+changes:
+
+1. **Explicit jurisdiction wasn't a hard scope.** An EU DMA item could
+   still surface in a Singapore run's "Recent Regulatory Developments"
+   because the classification prompt only asked the model to deprioritize
+   (not exclude) out-of-jurisdiction items. Added `jurisdictionMatchesRequested`
+   — a code-side filter, same backstop pattern as the evidence guardrail —
+   that drops any finding whose jurisdiction doesn't match the requested
+   one before it's ever persisted, with a small alias table (`EU`/`UK`/`US`
+   shorthand) and word-boundary matching (so a short alias like `"us"`
+   can't false-match inside an unrelated word like "Mauritius"). A
+   genuinely global/international item still passes through — it does
+   apply within the requested jurisdiction too, so dropping it would be
+   over-correction. The classification prompt's old "allow an occasional
+   strongly-evidenced item from elsewhere" carve-out (added in the previous
+   jurisdiction-selection pass) is removed; this was the actual source of
+   the leak, and the earlier pass didn't yet have a code-side backstop for
+   it.
+
+2. **"Caveat but still assert the claim."** The previous pass's
+   `withEvidenceCaveatIfNeeded` only prepended a disclaimer sentence before
+   the model's own unhedged prose — the DMA finding still read "...the
+   sources don't confirm this... ByteDance has been designated as a
+   gatekeeper..." in the same breath. Replaced it with
+   `neutralizeUnsupportedClaims`: split the text into sentences, and for
+   any sentence that asserts an unhedged designation/status claim
+   (gatekeeper, VLOP/VLOSE, licence, registration, designation, fine/
+   penalty, regulated-entity status, enforcement outcome — a categorized
+   term list, still no company/regulation-specific hardcoding), replace
+   the *sentence itself* with a generic hedge built from the finding's own
+   `regimeKey`/`title` and `regulatoryArea` (e.g. "DMA may be relevant to
+   this company's competition & antitrust activities, but the retrieved
+   authoritative sources do not confirm a specific gatekeeper designation
+   for this company or service."), dropping any further offending sentence
+   in the same field rather than repeating the hedge. `DIRECTLY_EVIDENCED`
+   text is left untouched, and text that's already hedged in the model's
+   own words is left untouched too (the detector requires the absence of a
+   hedge word in the same sentence).
+
+3. **Stale jurisdiction selector.** `CompanyPicker`'s jurisdiction dropdown
+   wasn't reset after a successful submission (only name/industry were),
+   so it could show a previous company's jurisdiction while viewing a
+   different company's historical run — confusing, though the displayed
+   "Jurisdiction:" line was already reading `latestRun.requestedJurisdiction`
+   (verified, unchanged) rather than form state. Added `setJurisdiction(AUTO_DETECT)`
+   alongside the existing resets.
+
+4. **Source quality.** `sourceAuthorityRank` (from the previous jurisdiction
+   pass) only ever promoted a recognized regulator-domain pattern, leaving
+   Wikipedia, compliance-vendor blogs, and a company's own domain all in
+   the same "neutral" middle tier as an unrecognized-but-legitimate
+   regulator like `dataprotection.ie` — so a finding could cite
+   `cloud.google.com` and three cookie-consent-vendor blog posts with none
+   demoted relative to each other. Added a third, demoted tier: a narrow
+   hostname/URL-pattern match for known generic sources (Wikipedia, Medium,
+   Investopedia, and — found live during this pass — a `/blog/`-style URL
+   path, which caught two real vendor sources `cookieyes.com/blog/...` and
+   `pandectes.io/blog/...` that a hostname-only "blog" check had missed),
+   plus a company's-own-domain check (`isCompanyOwnDomain`, driven by
+   `company.name` each run, e.g. "Google" → `cloud.google.com` — not a
+   hardcoded domain list, and checked against the hostname only so a
+   regulator URL merely mentioning the company in its path, e.g.
+   `dataprotection.ie/.../fines-tiktok`, is never caught by it).
+   Deliberately asymmetric per the explicit instruction not to add a
+   heuristic that could downgrade a legitimate regulator: this only ever
+   *demotes* a narrow, recognizable low-quality pattern, never guesses at
+   *promoting* an unfamiliar domain.
+
+Verified live (Firecrawl credits were briefly exhausted mid-pass — see
+below — then topped up):
+
+- **Google + Singapore** (re-run twice, once before and once after the
+  source-ranking fix): every finding's `jurisdiction` is `Singapore`; no
+  EU/DMA item leaked into the landscape. Before the fix, the PDPA regime
+  finding's sources were `cloud.google.com`, `cookieyes.com/blog/...`,
+  `cookie-script.com/...`, `pandectes.io/blog/...` — none demoted relative
+  to each other. After: `cloud.google.com` and both `/blog/` vendor URLs
+  correctly demoted to the back, `cookie-script.com` (no detectable
+  low-quality pattern — a known residual gap, see below) sorted ahead of
+  them.
+- **ByteDance + European Union**: DMA (`STRONGLY_INFERRED`, sole source a
+  law-firm blog) now reads only the generic hedge sentence in both
+  `summary` and `whyItMatters` — no "has been designated as a gatekeeper"
+  anywhere. DSA and the three GDPR findings (two `DIRECTLY_EVIDENCED`
+  enforcement items citing the real €530M Irish DPC fine, one
+  `STRONGLY_INFERRED` general-regime item) remained useful and
+  appropriately supported; the DSA finding's own VLOP/VLOSE sentence was
+  hedged the same way DMA's was, while its non-designation sentences
+  (which don't assert a specific status) were left as the model wrote
+  them.
+- **Stripe, Global/Auto-detect**: 8 findings spanning Global (sanctions),
+  United States (FTC, FinCEN/BSA), European Union (PSR, PSD3, AML
+  package), and United Kingdom (Payment Services Regulations) — confirms
+  the jurisdiction hard-scope filter is a no-op when no jurisdiction is
+  requested, and multi-jurisdiction auto-detect discovery is unchanged
+  from the previous pass.
+
+Also hit and resolved mid-pass: the Firecrawl API key on this deployment
+returned "Insufficient credits to perform this request" on a real run,
+and the same error persisted even after temporarily lowering the
+per-query result `limit` from 4 to 2 — confirming a real exhausted balance
+rather than a per-call cap, so the `limit` change was reverted rather than
+kept as a workaround. Verified the new pure logic (jurisdiction matching,
+claim rewriting, source ranking) directly against the real captured
+ByteDance/DMA text and a `dataprotection.ie` non-regression case via a
+standalone script while waiting for credits to be topped up, then re-ran
+all three live tests above once credits were restored.
+
+Known residual gap, not chased further per "final targeted pass, don't
+redesign": a generic compliance-vendor domain with no `/blog/`-style URL
+path and no name match to the company (e.g. `cookie-script.com`) isn't
+demoted — there's no non-hardcoded, low-false-positive way to recognize it
+as a vendor from the URL alone. It stays in the neutral middle tier rather
+than the back, same as an unrecognized real regulator would.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator

@@ -532,7 +532,10 @@ export const run = internalAction({
               .map((url) => urlToSource.get(url))
               .filter((s): s is { url: string; title: string } => Boolean(s))
               .map((s) => ({ ...s, retrievedAt }))
-              .sort((a, b) => sourceAuthorityRank(a.url) - sourceAuthorityRank(b.url)),
+              .sort(
+                (a, b) =>
+                  sourceAuthorityRank(a.url, company.name) - sourceAuthorityRank(b.url, company.name),
+              ),
           };
         })
         // AGENTS.md §8: never present a finding without evidence.
@@ -677,12 +680,17 @@ const AUTHORITATIVE_URL_HINTS = [
   "legislation",
 ];
 
-// Narrow, hostname-scoped patterns for sources that are never the primary
-// evidence for a regulatory claim even when they accurately describe one —
-// an encyclopedia, a blog, or a compliance-vendor/consultancy site. Not
-// tied to any one company or regulation.
+// Patterns for sources that are never the primary evidence for a
+// regulatory claim even when they accurately describe one — an
+// encyclopedia, a blog, or a compliance-vendor/consultancy site. Not tied
+// to any one company or regulation. The exact-hostname list is checked
+// against the hostname only (avoids a false match on an unrelated word
+// appearing in some other site's URL path); the substring list is checked
+// against the full URL, since a vendor's own content-marketing posts are
+// very commonly under a "/blog/"-style path on an otherwise ordinary
+// hostname (e.g. "cookieyes.com/blog/...", not a "blog." subdomain).
 const GENERIC_LOW_QUALITY_HOSTNAMES = ["wikipedia.org", "medium.com", "investopedia.com"];
-const GENERIC_LOW_QUALITY_HOSTNAME_SUBSTRINGS = ["blog", "vendor", "consultancy"];
+const GENERIC_LOW_QUALITY_URL_SUBSTRINGS = ["/blog/", "blog.", "vendor", "consultancy"];
 
 function hostnameOf(url: string): string {
   try {
@@ -693,17 +701,31 @@ function hostnameOf(url: string): string {
 }
 
 function isGenericLowQualitySource(url: string): boolean {
+  const lower = url.toLowerCase();
   const host = hostnameOf(url);
   return (
     GENERIC_LOW_QUALITY_HOSTNAMES.some((h) => host === h || host.endsWith(`.${h}`)) ||
-    GENERIC_LOW_QUALITY_HOSTNAME_SUBSTRINGS.some((s) => host.includes(s))
+    GENERIC_LOW_QUALITY_URL_SUBSTRINGS.some((s) => lower.includes(s))
   );
 }
 
-function sourceAuthorityRank(url: string): number {
+// A company's own domain is a company blog/marketing page, not third-party
+// evidence of an obligation imposed on it — demote it the same way as a
+// generic/vendor source. Driven by company.name each time (e.g. "Google"
+// -> "cloud.google.com" contains "google"), not a hardcoded domain list.
+// Checked against the HOSTNAME only, and only for names of meaningful
+// length, so a regulator's URL that merely mentions the company in its
+// path (e.g. dataprotection.ie/.../fines-tiktok) is never caught by this.
+function isCompanyOwnDomain(url: string, companyName: string): boolean {
+  const normalizedName = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (normalizedName.length < 3) return false;
+  return hostnameOf(url).replace(/[^a-z0-9.]/g, "").includes(normalizedName);
+}
+
+function sourceAuthorityRank(url: string, companyName: string): number {
   const lower = url.toLowerCase();
   if (AUTHORITATIVE_URL_HINTS.some((hint) => lower.includes(hint))) return 0;
-  if (isGenericLowQualitySource(url)) return 2;
+  if (isGenericLowQualitySource(url) || isCompanyOwnDomain(url, companyName)) return 2;
   return 1;
 }
 
