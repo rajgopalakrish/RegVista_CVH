@@ -250,6 +250,82 @@ body {
   letter-spacing: -0.015em;
 }
 
+/* --- Company brand chips ---------------------------------------------------
+   Colored wordmark chips for the specific demo companies (see CompanyBadge
+   in App.tsx) — brand-associated color + the company's own name, not traced
+   logo artwork. Renders nowhere for a company without an entry. */
+.brand-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 700;
+  border-radius: 7px;
+  white-space: nowrap;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.brand-chip-md {
+  font-size: 0.78rem;
+  padding: 0.32rem 0.6rem;
+}
+
+.brand-chip-sm {
+  font-size: 0.66rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+}
+
+.brand-chip-grab {
+  background: #00b14f;
+  color: #fff;
+}
+
+.brand-chip-dbs {
+  background: #e4002b;
+  color: #fff;
+}
+
+.brand-chip-stripe {
+  background: #635bff;
+  color: #fff;
+  text-transform: lowercase;
+}
+
+.brand-chip-google {
+  background: #20242c;
+  color: #e8eaf0;
+  border: 1px solid #333a4a;
+}
+
+.brand-chip-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.brand-chip-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.brand-chip-dots i:nth-child(1) {
+  background: #4285f4;
+}
+
+.brand-chip-dots i:nth-child(2) {
+  background: #ea4335;
+}
+
+.brand-chip-dots i:nth-child(3) {
+  background: #fbbc05;
+}
+
+.brand-chip-dots i:nth-child(4) {
+  background: #34a853;
+}
+
 .run-status {
   display: inline-flex;
   align-items: center;
@@ -460,7 +536,15 @@ body {
   border-radius: 10px;
   padding: 1.35rem 1.35rem 1.2rem;
   margin-bottom: 1.75rem;
-  background: #0e1320;
+  background-color: #0e1320;
+  /* A faint terminal-style dot grid plus a soft light wash from the top
+     edge — restrained depth cues, not decoration; static, no animation. */
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    radial-gradient(ellipse 900px 260px at 50% 0%, rgba(79, 124, 255, 0.07), transparent 70%);
+  background-size: 22px 22px, 100% 100%;
+  background-position: -4px -4px, 0 0;
+  box-shadow: 0 20px 44px -28px rgba(0, 0, 0, 0.6);
 }
 
 .exposure-map > .section-label {
@@ -486,13 +570,18 @@ body {
 }
 
 .exposure-map-company-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   background: #1a2338;
   border: 1px solid #4f7cff;
   color: #cfdaff;
-  padding: 0.35rem 1.1rem;
+  padding: 0.35rem 1.2rem 0.35rem 0.5rem;
   border-radius: 999px;
   font-weight: 600;
   font-size: 0.9rem;
+  /* A soft ring roots this node visually as the diagram's origin. */
+  box-shadow: 0 0 0 4px rgba(79, 124, 255, 0.08);
 }
 
 .exposure-map-lanes {
@@ -510,13 +599,33 @@ body {
   left: 0;
   right: 0;
   height: 1px;
-  background: #222736;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(79, 124, 255, 0.3) 12%,
+    rgba(79, 124, 255, 0.3) 88%,
+    transparent
+  );
 }
 
 .exposure-lane {
   flex: 1 1 190px;
   min-width: 190px;
   position: relative;
+}
+
+/* A thin divider between lanes so they read as distinct columns — sits in
+   the middle of the existing flex gap via absolute positioning, so it
+   can't disturb the lane's own box (the connector stub below depends on
+   being centered over that unchanged box). */
+.exposure-lane + .exposure-lane::after {
+  content: "";
+  position: absolute;
+  left: -0.55rem;
+  top: 1rem;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .exposure-lane::before {
@@ -526,7 +635,7 @@ body {
   left: 50%;
   width: 1px;
   height: 1rem;
-  background: #222736;
+  background: linear-gradient(to bottom, rgba(79, 124, 255, 0.3), #222736);
 }
 
 .exposure-lane-header {
@@ -562,7 +671,7 @@ body {
 
 .regime-chip {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 0.65rem;
   border-radius: 8px;
@@ -586,12 +695,42 @@ body {
   transform: translateX(2px);
 }
 
+/* Upcoming/proposed regimes get a dashed left rule on top of the amber
+   color, so the active/upcoming distinction reads even without color
+   (screen-share color fidelity, quick glance in a recording). */
 .regime-chip-upcoming {
   border-left-color: #a67c2e;
+  border-left-style: dashed;
 }
 
 .regime-chip-enforced {
   box-shadow: inset 0 0 0 1px rgba(200, 90, 90, 0.45);
+}
+
+.regime-chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.regime-chip-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.regime-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #5fbd80;
+}
+
+.regime-chip-upcoming .regime-chip-dot {
+  background: #e0b96f;
 }
 
 .regime-chip-name {
@@ -605,23 +744,34 @@ body {
 .regime-chip-meta {
   display: flex;
   flex-direction: column;
-  gap: 0.05rem;
+  gap: 0.15rem;
   font-size: 0.72rem;
-  margin-top: 0.15rem;
 }
 
 .regime-chip-jurisdiction {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   color: #b7c0d6;
   font-weight: 500;
 }
 
+.regime-chip-jurisdiction .chip-icon {
+  color: #6f7a91;
+  flex-shrink: 0;
+}
+
 .regime-chip-regulator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   color: #7d879c;
 }
 
-.regime-chip > .regime-chip-name,
-.regime-chip > .regime-chip-meta {
-  flex: 1;
+.regime-chip-provenance {
+  display: inline-flex;
+  color: #6fbd8a;
+  flex-shrink: 0;
 }
 
 .regime-chip-arrow {
@@ -660,6 +810,17 @@ body {
 
 .legend-enforced {
   background: #c85a5a;
+}
+
+.legend-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #9aa3b2;
+}
+
+.legend-provenance .chip-icon {
+  color: #6fbd8a;
 }
 
 /* --- Finding groups --------------------------------------------------------- */

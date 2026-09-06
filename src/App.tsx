@@ -177,6 +177,75 @@ function RecentList({
 
 type Finding = Doc<"findings">;
 
+// Subtle brand identity for the specific companies used in demos — a
+// colored wordmark chip built from the company's own name and brand color,
+// not traced logo artwork (no external asset fetch, no added dependency).
+// Matched by substring against the company's stored name (e.g. "Grab
+// Holdings" still matches "grab"), so it's additive and silent for any
+// other company: CompanyBadge renders nothing unless a name matches one of
+// these entries — never add one for a company not actually being
+// demonstrated.
+type CompanyBrand = { test: (name: string) => boolean; label: string; className: string };
+const COMPANY_BRANDS: CompanyBrand[] = [
+  { test: (n) => n.toLowerCase().includes("grab"), label: "Grab", className: "brand-chip-grab" },
+  { test: (n) => n.toLowerCase().includes("dbs"), label: "DBS", className: "brand-chip-dbs" },
+  { test: (n) => n.toLowerCase().includes("google"), label: "Google", className: "brand-chip-google" },
+  { test: (n) => n.toLowerCase().includes("stripe"), label: "Stripe", className: "brand-chip-stripe" },
+];
+
+function CompanyBadge({ name, size = "md" }: { name: string; size?: "md" | "sm" }) {
+  const brand = COMPANY_BRANDS.find((b) => b.test(name));
+  if (!brand) return null;
+  return (
+    <span className={`brand-chip ${brand.className} brand-chip-${size}`}>
+      {brand.className === "brand-chip-google" && (
+        <span className="brand-chip-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+      )}
+      {brand.label}
+    </span>
+  );
+}
+
+function JurisdictionIcon() {
+  return (
+    <svg className="chip-icon" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+      <path
+        d="M8 1c-2.76 0-5 2.24-5 5 0 3.75 5 9 5 9s5-5.25 5-9c0-2.76-2.24-5-5-5Zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+// Shown on a regime chip only when that finding's sourceQuality is
+// TIER_1_REGULATOR_GOVERNMENT — reusing a field already computed by the
+// research engine, not a new judgment made here.
+function ProvenanceTick() {
+  return (
+    <svg className="chip-icon chip-icon-verified" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+      <path
+        d="M8 1 2.5 3v4.2C2.5 10.9 4.8 14 8 15c3.2-1 5.5-4.1 5.5-7.8V3L8 1Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M5.5 8.2 7.2 10l3.3-3.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // An item without itemType is pre-ontology test data (from before this
 // field set existed) — shown in "Recent Developments" as a fallback so
 // nothing silently disappears, rather than assuming a bucket for it.
@@ -432,6 +501,7 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
   return (
     <section className="landscape">
       <div className="landscape-heading">
+        <CompanyBadge name={company.name} />
         <h2>{company.name}</h2>
         {latestRun && (
           <span className={`run-status run-status-${latestRun.status}`}>
@@ -672,7 +742,10 @@ function RegulatoryExposureMap({
       </p>
 
       <div className="exposure-map-root">
-        <div className="exposure-map-company-node">{companyName}</div>
+        <div className="exposure-map-company-node">
+          <CompanyBadge name={companyName} size="sm" />
+          {companyName}
+        </div>
       </div>
 
       <div className="exposure-map-lanes">
@@ -686,6 +759,7 @@ function RegulatoryExposureMap({
               {areaMap.get(area)!.map((f) => {
                 const isUpcoming = f.status === "FUTURE_OR_PROPOSED";
                 const isEnforced = f.regimeKey ? enforcedRegimeKeys.has(f.regimeKey) : false;
+                const isRegulatorSourced = f.sourceQuality === "TIER_1_REGULATOR_GOVERNMENT";
                 return (
                   <button
                     key={f._id}
@@ -697,10 +771,28 @@ function RegulatoryExposureMap({
                     onClick={() => onSelectFinding(f._id)}
                     title={`${f.regimeKey ?? f.title} — ${f.jurisdiction} — ${f.regulator}`}
                   >
-                    <span className="regime-chip-name">{f.regimeKey ?? f.title}</span>
-                    <span className="regime-chip-meta">
-                      <span className="regime-chip-jurisdiction">{f.jurisdiction}</span>
-                      <span className="regime-chip-regulator">{f.regulator}</span>
+                    <span className="regime-chip-body">
+                      <span className="regime-chip-top">
+                        <i className="regime-chip-dot" aria-hidden="true" />
+                        <span className="regime-chip-name">{f.regimeKey ?? f.title}</span>
+                      </span>
+                      <span className="regime-chip-meta">
+                        <span className="regime-chip-jurisdiction">
+                          <JurisdictionIcon />
+                          {f.jurisdiction}
+                        </span>
+                        <span className="regime-chip-regulator">
+                          {f.regulator}
+                          {isRegulatorSourced && (
+                            <span
+                              className="regime-chip-provenance"
+                              title="Sourced to a regulator/government publication"
+                            >
+                              <ProvenanceTick />
+                            </span>
+                          )}
+                        </span>
+                      </span>
                     </span>
                     <span className="regime-chip-arrow" aria-hidden="true">
                       →
@@ -722,6 +814,9 @@ function RegulatoryExposureMap({
         </span>
         <span>
           <i className="legend-dot legend-enforced" /> Enforcement
+        </span>
+        <span className="legend-provenance">
+          <ProvenanceTick /> Regulator-sourced
         </span>
       </div>
     </div>
