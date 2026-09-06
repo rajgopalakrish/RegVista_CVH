@@ -282,3 +282,52 @@ risking a text-shape heuristic that could misclassify genuinely compound
 specific citations; Stripe+Global/Auto-detect returned 9 findings across
 US/UK/EU with no maximally-vague compound titles and applicability
 hedging intact throughout.
+
+### 2026-09-06 - c001243
+Product polish pass: made RegVista read as a regulatory intelligence
+terminal rather than a hackathon demo, with the regulatory core frozen
+(no retrieval/classification/jurisdiction/applicability changes). One
+backend addition, purely to expose already-stored data:
+`research.recentCompanies` dedupes the Recent list by company name
+(newest wins) and attaches each company's latest run jurisdiction/status/
+time via the existing index — without it, re-researching a company (a
+normal way to compare jurisdictions) filled Recent with duplicate rows.
+
+Rewrote `App.tsx`/`index.css` for visual hierarchy, same data and
+component responsibilities throughout: company name is now the visually
+primary research field; the company profile reads as a labeled brief;
+finding cards split their previously-crowded single badge row into a top
+row, a plain meta line, and one combined applicability indicator (a
+colored dot + level/evidence in one pill); sources carry an honest
+sourceQuality-driven tag rather than an unverified "primary source"
+label; the three finding sections each got a distinct accent color;
+loading/empty/error states got real styling instead of bare text; the
+AgentMail briefing form moved into its own card with a one-line
+explanation.
+
+Implemented the Regulatory Exposure Map: Company -> exposure-area lanes
+(grouped by each finding's own `regulatoryArea`) -> regime chips tagged
+with jurisdiction/regulator, colored Active (green) or Upcoming (amber)
+by `status`, with a separate enforcement ring when another finding
+sharing the same `regimeKey` is an enforcement development. Built
+entirely from the current run's own `REGULATION_REGIME` findings — no
+graph library, no new backend data, renders nothing when a run has no
+named-regime findings. Clicking a chip scrolls to and briefly highlights
+the matching finding card below.
+
+Verified via `ConvexHttpClient` (this sandbox still can't tunnel the
+WebSocket a real browser needs, same documented limitation as every prior
+live-deployment pass): re-ran TikTok+Singapore (2 `REGULATION_REGIME`
+findings across 2 exposure-area lanes) and Stripe+Global/Auto-detect (6
+findings across 5 lanes, including one `ENFORCEMENT_DEVELOPMENT`-status
+regime correctly rendering as both active and enforcement-ringed) —
+confirming the map has real data to draw in both the jurisdiction-scoped
+and auto-detect cases. `requestedJurisdiction` matched what was requested
+on both runs. `recentCompanies` returned 8 distinct companies with zero
+duplicates against this session's real accumulated test data. Frontend
+and backend typecheck, and `npm run build`, all pass; the Convex backend
+deployed successfully. The static-hosting frontend deploy still hits the
+same pre-existing 403 documented in the two prior passes (unrelated to
+this pass's code) — the live `convex.site` URL is not yet serving this
+build, and full in-browser rendering couldn't be visually confirmed for
+the same reason as before.
