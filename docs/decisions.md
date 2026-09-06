@@ -754,6 +754,41 @@ Playwright/Chromium confirmed that directly in an earlier pass. Everything
 that could be verified without a browser (data correctness, typecheck,
 build, live query/mutation calls) was verified above.
 
+## 2026-09-06 — Fixed the static-hosting deploy's 403: same root cause as the earlier Node fetch/proxy note
+
+The last three passes documented `npm run deploy`'s upload step failing
+with `Storage upload failed for /assets/...: 403 Forbidden` and moved on,
+treating it as unrelated pre-existing infra. Root-caused it this time
+instead of deferring again: `@convex-dev/static-hosting`'s upload CLI
+(`node_modules/@convex-dev/static-hosting/dist/cli/upload.js`) uploads
+each file with a plain `fetch(uploadUrl, ...)` call to a Convex storage
+URL — and this sandbox's Node `fetch` (undici) does not honor
+`HTTPS_PROXY` unless run with the (experimental) `--use-env-proxy` flag,
+exactly the same root cause already documented under "Node's built-in
+`fetch` needs `--use-env-proxy` in this sandbox" for ad-hoc test scripts.
+That earlier fix was only ever applied manually to one-off scripts
+(`node --use-env-proxy .scratch-*.mjs`); it was never connected to the
+`npm run deploy` script itself, which is what let the "known infra issue"
+misdiagnosis stand for three passes.
+
+Confirmed by re-running the deploy with `NODE_OPTIONS=--use-env-proxy`
+set — it succeeded immediately (`✨ Upload complete!`, live URL
+`https://brilliant-roadrunner-68.convex.site` returned 200 for the page
+and both built assets). Fixed durably by baking the flag into the
+`deploy` script itself in `package.json`:
+`"deploy": "NODE_OPTIONS=--use-env-proxy npx @convex-dev/static-hosting deploy"`
+— `--use-env-proxy` only changes behavior when an `HTTPS_PROXY`-style
+variable is actually set, so this is a no-op on the project owner's own
+machine (or any environment without a proxy) and only activates where
+it's actually needed, this sandbox included. Re-verified `npm run deploy`
+works standalone (no manually-exported env var) after the change.
+
+This also means the "static-hosting frontend deploy still hits the
+pre-existing 403" caveat in the last three passes' verification sections
+was a live, real, previously-unfixed bug the whole time, not cosmetic
+noise — the polish-pass UI (Regulatory Exposure Map included) is now
+actually being served at the live URL, not just committed to the repo.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator

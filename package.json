@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
     "preview": "vite preview",
-    "deploy": "npx @convex-dev/static-hosting deploy"
+    "deploy": "NODE_OPTIONS=--use-env-proxy npx @convex-dev/static-hosting deploy"
   },
   "dependencies": {
     "@convex-dev/static-hosting": "^0.2.1",

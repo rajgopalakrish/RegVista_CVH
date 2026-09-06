@@ -331,3 +331,19 @@ same pre-existing 403 documented in the two prior passes (unrelated to
 this pass's code) — the live `convex.site` URL is not yet serving this
 build, and full in-browser rendering couldn't be visually confirmed for
 the same reason as before.
+
+### 2026-09-06 - (package.json)
+Root-caused and fixed the static-hosting deploy 403 that three prior
+passes had logged as an unrelated pre-existing infra issue: the
+`@convex-dev/static-hosting` CLI uploads files via a plain Node `fetch()`
+call, and this sandbox's Node `fetch` doesn't honor `HTTPS_PROXY` without
+the `--use-env-proxy` flag — the exact same root cause already documented
+for ad-hoc test scripts, just never connected to the actual `deploy` npm
+script. Fixed durably: `package.json`'s `deploy` script now runs with
+`NODE_OPTIONS=--use-env-proxy` (a no-op anywhere without an `HTTPS_PROXY`
+set, so harmless on the project owner's own machine). Verified `npm run
+deploy` succeeds standalone and the live site
+(`https://brilliant-roadrunner-68.convex.site`) now serves the current
+build (200 on the page and both built assets) — including the product-
+polish pass's UI and Regulatory Exposure Map, which had been committed
+but never actually live until now.
