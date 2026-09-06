@@ -207,6 +207,14 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Without this, a flex item's default min-width:auto resolves to its
+     full (nowrap) content width, so the ellipsis/overflow rules above
+     never actually engage — the row just overflows horizontally instead
+     of truncating. Confirmed via static analysis at mobile widths (a
+     company name plus a longer jurisdiction/status/time string can
+     exceed the row's available width there); this makes the
+     already-written truncation behavior actually take effect. */
+  min-width: 0;
 }
 
 .status-dot {
