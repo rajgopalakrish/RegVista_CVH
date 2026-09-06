@@ -8,6 +8,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import {
+  APPLICABILITY_EVIDENCE_LEVELS,
   APPLICABILITY_LEVELS,
   ITEM_TYPES,
   jurisdictionValidator,
@@ -217,7 +218,9 @@ const FindingSchema = z.object({
         ),
         regulatoryArea: z.string(),
         title: z.string(),
-        summary: z.string(),
+        summary: z.string().describe(
+          "Factual summary grounded in the provided sources. Same evidence-gating rule as whyItMatters: do not state a specific regulatory designation, license, threshold, or enforcement outcome as settled fact unless applicabilityEvidence is DIRECTLY_EVIDENCED — hedge it ('may be considered...', 'is potentially subject to...') otherwise.",
+        ),
         status: z.enum(REGULATORY_STATUSES).describe(
           "PASSED_NO_ACTIVE_OBLIGATIONS: an established regime with no pending/ongoing obligation highlighted by the evidence. PASSED_PENDING_OR_ONGOING_OBLIGATIONS: an established, already-effective regime with active/ongoing compliance obligations — this is the status for an established law facing active enforcement, never FUTURE_OR_PROPOSED. FUTURE_OR_PROPOSED: not yet in force (a bill, proposed rule, or a regime with a future effective date). GUIDANCE_INTERPRETATION: official interpretive guidance, not a new obligation itself. ENFORCEMENT_DEVELOPMENT: an enforcement action, investigation, or fine — a development, not a regime status. Do not mark an established regulation FUTURE_OR_PROPOSED merely because it has upcoming enforcement activity.",
         ),
@@ -231,6 +234,9 @@ const FindingSchema = z.object({
           .describe(
             "How confident you are that this genuinely applies to this specific company's actual operations, given the evidence and the company profile. Lower this when the evidence is generic or the link to the company is inferred rather than stated. Never invent applicability.",
           ),
+        applicabilityEvidence: z.enum(APPLICABILITY_EVIDENCE_LEVELS).describe(
+          "How well the SPECIFIC applicability claim in this finding — not just the general regime — is backed by the provided sources, as opposed to your own general knowledge. DIRECTLY_EVIDENCED: a provided source explicitly states this company (or its named product/subsidiary) has this specific status, designation, license, threshold, or obligation (e.g. a source that names the company as a designated gatekeeper, a licensed entity, or subject to a specific enforcement action). STRONGLY_INFERRED: no source states the specific claim, but it follows directly from the company's well-established business activity and the general regime (e.g. 'GDPR applies because this is a company that processes personal data of EU residents' is a reasonable inference from the business model, not a specific designation). POSSIBLE_UNCERTAIN: plausible but the link is speculative or the evidence is thin/generic. A specific regulatory designation, license, quantitative threshold, or enforcement/investigation status (e.g. 'gatekeeper', 'VLOP', 'VLOSE', a license number, a named enforcement outcome) must be DIRECTLY_EVIDENCED before you state it as settled fact anywhere in this finding — see summary/whyItMatters.",
+        ),
         relevanceScore: z
           .number()
           .min(0)
@@ -241,7 +247,8 @@ const FindingSchema = z.object({
         whyItMatters: z
           .string()
           .describe(
-            "Connect company -> sector/business activity -> regulatory regime, specific to this company (e.g. 'This company's operation of large online platforms and advertising services creates exposure to EU digital-platform regulation'). Not generic boilerplate like 'compliance builds trust'.",
+            "Connect company -> sector/business activity -> regulatory regime, specific to this company (e.g. 'This company's operation of large online platforms and advertising services creates exposure to EU digital-platform regulation'). Not generic boilerplate like 'compliance builds trust'. " +
+              "If applicabilityEvidence is not DIRECTLY_EVIDENCED, use cautious wording ('Potentially relevant because...', 'may be subject to...', 'could qualify as...') instead of stating a specific designation, license, threshold, or enforcement outcome as settled fact — e.g. write 'ByteDance's platforms may meet the EU's size thresholds for gatekeeper designation under the DMA' rather than 'ByteDance is designated as a gatekeeper' unless a provided source actually states that designation.",
           ),
         sourceQuality: z.enum(SOURCE_QUALITY_TIERS).describe(
           "Judge this by who actually publishes the URL, not by how accurate or well-written the content is. TIER_1_REGULATOR_GOVERNMENT: the regulator/government/legislature's own site (e.g. mas.gov.sg, dataprotection.ie, digital-strategy.ec.europa.eu, ico.org.uk, legislation.gov.uk — official domains vary by country and are not always '.gov'). TIER_2_OFFICIAL_GUIDANCE_CONSULTATION: an official consultation/guidance portal, still government/regulator-run. TIER_3_SECONDARY_REPORTING: everything else that is not the regulator's own publication — reputable news, law-firm analysis, encyclopedic sources (e.g. Wikipedia), and, critically, private compliance/RegTech consultancy sites that summarize regulations as marketing content. A third-party site accurately describing a law is still TIER_3, never TIER_1 — only the regulator's own domain earns TIER_1.",
@@ -392,7 +399,19 @@ export const run = internalAction({
               "they mention regulations by name — classify those as " +
               "GENERIC_COMPLIANCE_MARKETING. Classify honestly per each " +
               "field's description and do not inflate scores just because " +
-              "a source uses regulatory-sounding language.",
+              "a source uses regulatory-sounding language.\n\n" +
+              "Applicability evidence guardrail: a specific regulatory " +
+              "designation, license, quantitative threshold, or " +
+              "enforcement/investigation status (e.g. 'gatekeeper', " +
+              "'VLOP', 'VLOSE', a specific license, a named enforcement " +
+              "outcome) must never be stated as settled fact unless a " +
+              "provided source explicitly supports that specific claim for " +
+              "this company — general knowledge that such statuses exist " +
+              "in the regime is not enough. Where the evidence only " +
+              "supports the general regime applying to the company's " +
+              "sector, say so in general terms and set " +
+              "applicabilityEvidence accordingly (see its field " +
+              "description) rather than asserting the specific status.",
           },
           {
             role: "user",
@@ -458,12 +477,18 @@ export const run = internalAction({
           regulator: f.regulator,
           regulatoryArea: f.regulatoryArea,
           title: f.title,
-          summary: f.summary,
+          // The model's own applicabilityEvidence field is a self-report —
+          // testing showed it can correctly flag a claim as not directly
+          // evidenced while still writing the claim as unhedged fact in
+          // the prose (in either summary or whyItMatters). Add a caveat
+          // rather than trust the free text alone.
+          summary: withEvidenceCaveatIfNeeded(f.summary, f.applicabilityEvidence),
           status: f.status,
           applicabilityLevel: f.applicabilityLevel,
           applicabilityConfidence: normalizeConfidence(f.applicabilityConfidence),
+          applicabilityEvidence: f.applicabilityEvidence,
           relevanceScore: f.relevanceScore,
-          whyItMatters: f.whyItMatters,
+          whyItMatters: withEvidenceCaveatIfNeeded(f.whyItMatters, f.applicabilityEvidence),
           sourceQuality: f.sourceQuality,
           publicationDate: f.publicationDate ?? undefined,
           effectiveDate: f.effectiveDate ?? undefined,
@@ -487,6 +512,19 @@ export const run = internalAction({
           `dropped ${droppedMarketing} generic-marketing, ${droppedWeak} below relevance ` +
           `threshold; kept ${findings.length}`,
       );
+
+      const caveatedCount = findings.filter(
+        (f) =>
+          f.summary.startsWith(EVIDENCE_CAVEAT_PREFIX) ||
+          f.whyItMatters.startsWith(EVIDENCE_CAVEAT_PREFIX),
+      ).length;
+      if (caveatedCount > 0) {
+        console.warn(
+          `[research:${runId}] added an evidence caveat to ${caveatedCount} finding(s): ` +
+            `applicabilityEvidence wasn't DIRECTLY_EVIDENCED but the model's own text stated ` +
+            `a specific designation/license/threshold/enforcement claim unhedged`,
+        );
+      }
 
       await ctx.runMutation(internal.research.recordFindings, {
         companyId,
@@ -520,6 +558,47 @@ function isUsableSource(title: string | undefined, url: string | undefined): boo
   if (trimmed.length < 6) return false;
   if (JUNK_TITLE_PATTERN.test(trimmed)) return false;
   return true;
+}
+
+// Detector for a specific-designation claim (gatekeeper, VLOP/VLOSE, a
+// license, a named enforcement outcome, etc.) stated without any hedging
+// language nearby. General term lists, not tied to any one company or
+// regime. Feeds withEvidenceCaveatIfNeeded() below, which adds a caveat
+// (never rewrites or drops a finding) when this fires alongside an
+// applicabilityEvidence level other than DIRECTLY_EVIDENCED.
+const DESIGNATION_CLAIM_TERMS =
+  /\b(gatekeeper|VLOP|VLOSE|designated as|license[d]? (as|to|no\.?)|authoriz(ed|ation) (as|to)|registered as|found (guilty|liable)|ordered to pay|fined \$?\S|convicted)\b/i;
+const HEDGE_TERMS =
+  /\b(potentially|possibly|may|might|could|likely|appears? to|is believed|reportedly|is thought)\b/i;
+
+function containsUnhedgedDesignationClaim(text: string): boolean {
+  return DESIGNATION_CLAIM_TERMS.test(text) && !HEDGE_TERMS.test(text);
+}
+
+// Backstop for the same guardrail the prompt already asks for: testing
+// showed the model can correctly set applicabilityEvidence to something
+// other than DIRECTLY_EVIDENCED while still writing the specific
+// designation/status claim as unhedged fact in summary/whyItMatters. Rather
+// than try to rewrite the model's sentence (real risk of mangling it), add
+// an honest caveat in front — it's never wrong to say our evidence for a
+// specific claim is inferred rather than confirmed, whether or not the
+// claim happens to be true.
+const EVIDENCE_CAVEAT_PREFIX = "Evidence caveat: ";
+
+// Applied independently to summary and whyItMatters — either or both can
+// carry the unhedged claim, and the UI renders both directly to users, so
+// both need the same guardrail rather than just the one field.
+function withEvidenceCaveatIfNeeded(
+  text: string,
+  applicabilityEvidence: (typeof APPLICABILITY_EVIDENCE_LEVELS)[number],
+): string {
+  if (applicabilityEvidence === "DIRECTLY_EVIDENCED") return text;
+  if (!containsUnhedgedDesignationClaim(text)) return text;
+  return (
+    `${EVIDENCE_CAVEAT_PREFIX}the retrieved sources don't explicitly confirm this ` +
+    `specific designation/status for this company — treat it as a plausible inference, ` +
+    `not a confirmed fact. ${text}`
+  );
 }
 
 // Sorts a finding's sources so an official regulator/government domain

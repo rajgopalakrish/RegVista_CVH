@@ -205,6 +205,11 @@ header h1 {
   color: #9aa3b2;
 }
 
+.badge-caution {
+  background: #3a2f1d;
+  color: #e0b96f;
+}
+
 .relevance {
   margin-left: auto;
   font-size: 0.8rem;

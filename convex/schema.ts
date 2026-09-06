@@ -51,6 +51,20 @@ export const sourceQualityValidator = v.union(
   ...SOURCE_QUALITY_TIERS.map((t) => v.literal(t)),
 );
 
+// How well the *specific* applicability claim (not just the general
+// exposure area) is actually backed by the retrieved evidence, as opposed
+// to general LLM knowledge. A regime can be CORE_EXPOSURE (central to the
+// business) while a specific designation/status claim about it is only
+// STRONGLY_INFERRED or POSSIBLE_UNCERTAIN — these are separate axes.
+export const APPLICABILITY_EVIDENCE_LEVELS = [
+  "DIRECTLY_EVIDENCED",
+  "STRONGLY_INFERRED",
+  "POSSIBLE_UNCERTAIN",
+] as const;
+export const applicabilityEvidenceValidator = v.union(
+  ...APPLICABILITY_EVIDENCE_LEVELS.map((e) => v.literal(e)),
+);
+
 // A starter set of jurisdictions a user can explicitly scope research to.
 // "Global / Auto-detect" isn't in this list — it's the absence of a
 // requested jurisdiction (research.start's `jurisdiction` arg is optional),
@@ -140,6 +154,9 @@ export default defineSchema({
     status: v.optional(regulatoryStatusValidator),
     applicabilityLevel: v.optional(applicabilityLevelValidator),
     applicabilityConfidence: v.optional(v.number()), // 0-100
+    // How well-evidenced the specific applicability claim is (distinct from
+    // applicabilityLevel, which is how central the exposure is).
+    applicabilityEvidence: v.optional(applicabilityEvidenceValidator),
     sourceQuality: v.optional(sourceQualityValidator),
     // Free-text, not parsed timestamps: sources rarely give a precise date,
     // and forcing one invites fabrication (AGENTS.md §8).

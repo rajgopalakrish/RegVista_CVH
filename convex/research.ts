@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
+  applicabilityEvidenceValidator,
   applicabilityLevelValidator,
   itemTypeValidator,
   jurisdictionValidator,
@@ -104,6 +105,7 @@ export const recordFindings = internalMutation({
         status: regulatoryStatusValidator,
         applicabilityLevel: applicabilityLevelValidator,
         applicabilityConfidence: v.number(),
+        applicabilityEvidence: applicabilityEvidenceValidator,
         sourceQuality: sourceQualityValidator,
         publicationDate: v.optional(v.string()),
         effectiveDate: v.optional(v.string()),

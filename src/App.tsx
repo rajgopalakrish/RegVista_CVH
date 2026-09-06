@@ -158,6 +158,14 @@ const APPLICABILITY_LABELS: Record<string, string> = {
   MONITOR_ONLY: "Monitor only",
 };
 
+// How well-evidenced the specific applicability claim is — distinct from
+// applicabilityLevel (how central the exposure is).
+const APPLICABILITY_EVIDENCE_LABELS: Record<string, string> = {
+  DIRECTLY_EVIDENCED: "Directly evidenced",
+  STRONGLY_INFERRED: "Strongly inferred",
+  POSSIBLE_UNCERTAIN: "Possible / uncertain",
+};
+
 function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
   const company = useQuery(api.companies.get, { companyId });
   const landscape = useQuery(api.research.listByCompany, { companyId });
@@ -320,6 +328,17 @@ function FindingCard({ finding: f }: { finding: Finding }) {
         {f.status && <span className="badge">{STATUS_LABELS[f.status] ?? f.status}</span>}
         {f.applicabilityLevel && (
           <span className="badge">{APPLICABILITY_LABELS[f.applicabilityLevel] ?? f.applicabilityLevel}</span>
+        )}
+        {f.applicabilityEvidence && (
+          <span
+            className={
+              f.applicabilityEvidence === "DIRECTLY_EVIDENCED"
+                ? "badge"
+                : "badge badge-caution"
+            }
+          >
+            {APPLICABILITY_EVIDENCE_LABELS[f.applicabilityEvidence] ?? f.applicabilityEvidence}
+          </span>
         )}
         <span className="relevance">Relevance {f.relevanceScore}/100</span>
       </div>

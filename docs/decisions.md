@@ -346,6 +346,74 @@ Singapore-scoped. Stripe with Global/Auto-detect reproduced the
 pre-existing multi-jurisdiction discovery behavior (US/EU/UK spread)
 unchanged, confirming auto-detect wasn't regressed.
 
+## 2026-09-06 — Applicability evidence guardrail: prompt alone was insufficient, added a code-side caveat backstop
+
+User feedback on a real ByteDance + European Union run: the DMA finding
+stated "ByteDance, designated as a gatekeeper with respect to TikTok in the
+EU…" as settled fact, sourced only from a private compliance-vendor blog —
+a material regulatory designation asserted from general LLM knowledge
+rather than the retrieved evidence.
+
+First fix (prompt-only, per the given requirements): added a new
+`applicabilityEvidence` axis (`DIRECTLY_EVIDENCED` / `STRONGLY_INFERRED` /
+`POSSIBLE_UNCERTAIN`) to `schema.ts` (`APPLICABILITY_EVIDENCE_LEVELS`,
+`applicabilityEvidenceValidator`), threaded through `research.ts`'s
+`recordFindings` validator (required for every new write, optional at the
+table level for backward compatibility) and the OpenAI Zod schema in
+`researchActions.ts`, with a detailed field description distinguishing "a
+source explicitly names this company's specific status/designation" from
+"follows from the general business model" from "speculative/thin." Also
+sharpened `summary`/`whyItMatters` field descriptions and the classification
+system prompt to require hedged wording ("may be considered…", "is
+potentially subject to…") whenever `applicabilityEvidence` isn't
+`DIRECTLY_EVIDENCED`. This is orthogonal to `applicabilityLevel` (how
+central the exposure is) — a regime can be `CORE_EXPOSURE` while the
+specific designation claim about it is only inferred. `applicabilityLevel`
+itself was left unchanged per the instruction to keep the ontology's
+architecture intact.
+
+Live re-test (real ByteDance + European Union run) proved this
+insufficient: the model correctly self-tagged the DMA finding as
+`applicabilityEvidence=STRONGLY_INFERRED`, but its own `summary` and
+`whyItMatters` prose still asserted the gatekeeper designation as unhedged
+fact — confirming the exact user-reported bug persisted even after the
+schema/prompt fix. The structured field and the free text can disagree.
+
+Fix: rather than try to rewrite the model's sentence (real risk of mangling
+a true claim into a false one, or vice versa), added a code-side backstop
+in `researchActions.ts` — `containsUnhedgedDesignationClaim()` (a general,
+non-company-specific regex over designation-claim terms like "gatekeeper",
+"VLOP", "VLOSE", "designated as", "licensed", "fined", crossed against
+common hedge words) and `withEvidenceCaveatIfNeeded()`, which prepends an
+honest, always-true caveat ("the retrieved sources don't explicitly confirm
+this specific designation/status for this company — treat it as a
+plausible inference, not a confirmed fact") whenever `applicabilityEvidence
+!== "DIRECTLY_EVIDENCED"` and the text contains an unhedged designation
+claim. Applied independently to both `summary` and `whyItMatters` (an
+earlier pass only covered `whyItMatters`; the retest showed `summary` still
+carried the same unhedged claim, since the UI renders both fields directly
+to the user). Nothing here references ByteDance, TikTok, DMA, DSA, or GDPR
+by name — the term list and logic are general enough to apply to any
+company/regime combination, matching the explicit "do not hardcode"
+requirement. A `caveatedCount` diagnostic log line reports how often this
+backstop actually fires per run, for future spot-checking.
+
+Verified live (ByteDance + European Union, after the full fix): DSA and
+GDPR findings state applicability in general, non-designation terms
+("large online platform subject to DSA obligations", "processes personal
+data of EU residents") and were left uncaveated — appropriate, since
+neither asserts a specific status this company was never confirmed to
+hold. The two enforcement-based GDPR findings (the Irish DPC's real €530M
+fine and its follow-up investigation, both sourced from
+`dataprotection.ie`) came back `DIRECTLY_EVIDENCED` and uncaveated,
+correctly. The DMA finding's `summary` and `whyItMatters` both now open
+with the evidence caveat rather than asserting the gatekeeper designation
+as fact, while `applicabilityEvidence=STRONGLY_INFERRED` explains why. The
+run still returned 8 useful findings overall (DMA, DSA, GDPR ×3, an EU
+consumer-protection complaint, the strengthened Disinformation Code of
+Practice, a GDPR procedural-regulation proposal) — the guardrail added
+honesty, it didn't delete uncertain-but-useful results.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
