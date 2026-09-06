@@ -633,13 +633,23 @@ function RegulatoryExposureMap({
 }) {
   if (regimeFindings.length === 0) return null;
 
+  // Group by a case-insensitive, whitespace-normalized key so exact case/
+  // format variants of the same regulatoryArea text (e.g. differing only in
+  // capitalization) collapse into one lane — never a fuzzy/semantic merge,
+  // just the same string modulo case and stray whitespace. The first-seen
+  // original text is kept as the lane's display label.
+  const normalizeAreaKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
   const areaOrder: string[] = [];
+  const areaLabel = new Map<string, string>();
   const areaMap = new Map<string, Finding[]>();
   for (const f of regimeFindings) {
-    const key = f.regulatoryArea?.trim() || "Other";
+    const raw = f.regulatoryArea?.trim() || "Other";
+    const key = normalizeAreaKey(raw);
     if (!areaMap.has(key)) {
       areaMap.set(key, []);
       areaOrder.push(key);
+      areaLabel.set(key, raw);
     }
     areaMap.get(key)!.push(f);
   }
@@ -669,7 +679,7 @@ function RegulatoryExposureMap({
         {areaOrder.map((area) => (
           <div className="exposure-lane" key={area}>
             <div className="exposure-lane-header">
-              {area}
+              {areaLabel.get(area)}
               <span className="exposure-lane-count">{areaMap.get(area)!.length}</span>
             </div>
             <div className="exposure-lane-chips">
