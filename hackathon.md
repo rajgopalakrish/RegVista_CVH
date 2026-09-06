@@ -2,9 +2,11 @@
 
 - **Project:** RegVista
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Enter a company and see its regulatory landscape —
-  jurisdictions, regulators, regulatory areas, and evidence-backed findings
-  with a relevance score and "why this matters," plus an emailed briefing.
+- **What it does:** Enter a company and see its regulatory landscape — an
+  inferred sector/exposure profile, its active regulatory regimes (e.g.
+  GDPR), upcoming/changing rules, and recent enforcement/developments, each
+  evidence-backed with a relevance score, applicability, and "why this
+  matters," plus an emailed briefing.
 - **Live app:** https://brilliant-roadrunner-68.convex.site
 - **Repo:** https://github.com/rajgopalakrish/RegVista_CVH
 - **Frontend:** Convex static hosting
@@ -12,9 +14,9 @@
 - **Components:** @convex-dev/static-hosting
 - **Convex features:** schema, indexes, queries, mutations, internal mutations, actions, internal actions, scheduled functions, realtime queries
 - **Auth:** none
-- **AI models:** gpt-4.1-mini (direct OpenAI SDK call, not the Convex AI Gateway)
+- **AI models:** gpt-4.1-mini (direct OpenAI SDK, two calls per run: company profiling, then classification — not the Convex AI Gateway)
 - **Started:** 2026-09-05T07:16:49Z
-- **Last updated:** 2026-09-05T17:05:20Z
+- **Last updated:** 2026-09-06T03:41:14Z
 
 ## Log
 
@@ -110,3 +112,33 @@ deployment went from 6/6 marketing-page findings to 4 findings backed by
 fine, and Financial Times coverage of EU Digital Markets Act enforcement —
 one borderline finding (Google's own ad-certification policy) remains,
 honestly scored at the threshold rather than inflated.
+
+### 2026-09-06 - fa3b851
+Redesigned the pipeline around `Company → sector/exposure profile →
+exposure-driven retrieval → classification (regime vs. supporting signal) →
+applicability → evidence`, since results still read as regulatory news
+research rather than a genuine landscape. Added a `companyProfiles` table
+and a first OpenAI call (`researchActions.ts`) that infers sector, business
+model, geographic footprint, and regulatory exposure areas from the company
+name alone — a lightweight exposure map, not corporate intelligence.
+Firecrawl queries are now built from that profile's own exposure areas and
+jurisdictions (five queries: regime/law, guidance/consultation, enforcement,
+a second exposure area, implementation/effective-date) instead of one
+generic query. `findings` gained an ontology: `itemType` (REGULATION_REGIME
+is first-class; GUIDANCE/CONSULTATION/PROPOSED_RULE/IMPLEMENTATION/
+ENFORCEMENT/NEWS/COMPANY_POLICY are supporting signals), `regimeKey`
+(links a development back to its regime), `status` (in-force vs.
+future/proposed vs. guidance vs. enforcement), `applicabilityLevel`/
+`applicabilityConfidence`, and `sourceQuality`. The frontend now groups the
+latest run into Active Regulatory Regimes / Upcoming or Changing / Recent
+Regulatory Developments plus a company-profile card, instead of one flat
+list. Fixed two real bugs found by running this live: OpenAI's
+structured-output API rejects Zod `.optional()` (needs `.nullable()`), and
+the profiling model returned confidence as a 0-1 fraction despite the
+0-100 instruction. Verified live against Google (EU exposure) — GDPR, the
+UK Online Safety Act, and the EU-US Data Privacy Framework now surface as
+first-class regimes, with a CNIL fine correctly demoted to a supporting
+enforcement development tagged to GDPR — and DBS Bank (Singapore) — MAS
+capital-adequacy regulation, an HKMA AML/CTF enforcement action, and
+Bangladesh banking oversight, a completely different regulatory domain set
+driven entirely by the inferred profile.
