@@ -123,7 +123,10 @@ async function inferCompanyProfile(
 // only" limit (the confirmed cause of regimes disappearing between runs)
 // without letting the query count grow unboundedly as the ledger grows.
 const REFRESH_QUERY_BUDGET = 3;
-const DISCOVERY_AREA_BUDGET = 4;
+// Matches ProfileSchema.regulatoryExposureAreas' own max (6) — every area
+// Stage 1 identifies as materially relevant gets a discovery opportunity,
+// rather than only the first 4 of however many it names.
+const DISCOVERY_AREA_BUDGET = 6;
 
 type ActiveRegimeRow = {
   regime: { jurisdiction: string; regimeKey: string; regulatoryArea: string };

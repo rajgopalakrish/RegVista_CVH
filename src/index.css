@@ -628,6 +628,10 @@ body {
   border-left-color: #3a6b4a;
 }
 
+.finding-group-potential {
+  border-left-color: #6b6f85;
+}
+
 .finding-group-upcoming {
   border-left-color: #a67c2e;
 }
@@ -651,6 +655,10 @@ body {
 
 .group-dot-active {
   background: #3a6b4a;
+}
+
+.group-dot-potential {
+  background: #6b6f85;
 }
 
 .group-dot-upcoming {

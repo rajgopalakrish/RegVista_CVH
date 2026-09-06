@@ -181,12 +181,14 @@ type Finding = Doc<"findings">;
 // field set existed) — shown in "Recent Developments" as a fallback so
 // nothing silently disappears, rather than assuming a bucket for it.
 //
-// Only used now to keep a current-run REGULATION_REGIME item that didn't
-// clear the regime ledger's (higher) credibility bar — e.g. a secondary
-// source or POSSIBLE_UNCERTAIN evidence — out of "Recent Regulatory
-// Developments", where it would otherwise read as an enforcement/news item.
-// The "Active Regulatory Regimes" section itself is now driven by the
-// ledger's stable activeRegimeExposures, not this function.
+// "Active Regulatory Regimes" is driven by the ledger's stable
+// activeRegimeExposures, not this function. This function instead now
+// identifies a current-run REGULATION_REGIME item with established status
+// that the ledger didn't (yet) admit — e.g. a secondary source or
+// POSSIBLE_UNCERTAIN evidence — so it can be shown as a distinct "Potential
+// / Unconfirmed Regulatory Signal" rather than either being promoted into
+// the ledger's group or silently dropped/mislabeled as a generic
+// development.
 function isEstablishedRegime(f: Finding) {
   return (
     f.itemType === "REGULATION_REGIME" &&
@@ -382,6 +384,15 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
     .filter((f): f is Finding => f !== undefined);
   const activeRegimeFindingIds = new Set(activeRegimeFindings.map((f) => f._id));
 
+  // A named, established-status regime this run identified but that didn't
+  // clear the ledger's admission bar (e.g. only secondary sources so far) is
+  // still a real, meaningful research result — not a generic development,
+  // and not confirmed enough for the stable ledger. It gets its own group
+  // rather than either being promoted into "Active Regulatory Regimes" (that
+  // would weaken the ledger gate) or silently dropped from the page.
+  const potentialRegimeFindings = currentFindings.filter(
+    (f) => isEstablishedRegime(f) && !activeRegimeFindingIds.has(f._id),
+  );
   const upcomingOrChanging = currentFindings.filter(isUpcomingOrChanging);
   const recentDevelopments = currentFindings.filter(
     (f) =>
@@ -470,6 +481,13 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
         subtitle="Established regulations/frameworks confirmed relevant to this company, including ones this run didn't re-query."
         items={activeRegimeFindings}
         accent="active"
+        highlightedId={highlightedId}
+      />
+      <FindingGroup
+        title="Potential / Unconfirmed Regulatory Signals"
+        subtitle="Named regimes identified this run that aren't yet confirmed enough for the stable ledger — e.g. only secondary sources so far."
+        items={potentialRegimeFindings}
+        accent="potential"
         highlightedId={highlightedId}
       />
       <FindingGroup
@@ -700,8 +718,9 @@ function RegulatoryExposureMap({
   );
 }
 
-const GROUP_ACCENT_CLASS: Record<"active" | "upcoming" | "developments", string> = {
+const GROUP_ACCENT_CLASS: Record<"active" | "potential" | "upcoming" | "developments", string> = {
   active: "finding-group-active",
+  potential: "finding-group-potential",
   upcoming: "finding-group-upcoming",
   developments: "finding-group-developments",
 };
@@ -716,7 +735,7 @@ function FindingGroup({
   title: string;
   subtitle: string;
   items: Finding[];
-  accent: "active" | "upcoming" | "developments";
+  accent: "active" | "potential" | "upcoming" | "developments";
   highlightedId: Id<"findings"> | null;
 }) {
   if (items.length === 0) return null;
