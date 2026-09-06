@@ -215,6 +215,77 @@ threshold) — the one residual case worth watching, since it's Google's own
 platform policy rather than an obligation imposed on Google, but it's
 honestly scored low rather than inflated.
 
+## 2026-09-06 — Shifted from "regulatory findings" to a company-profile-driven regulatory ontology
+
+Even after the marketing-page fix, results still read as regulatory
+news/enforcement research rather than a genuine regulatory landscape — a
+regulation itself (GDPR, the DSA) rarely showed up as its own item; only
+enforcement/news mentioning it did. Root cause: the pipeline went straight
+from company name to a flat, undifferentiated "finding," with no concept
+of company sector/exposure to drive targeted retrieval, and no distinction
+between a regime and a development about one.
+
+Redesigned around: `Company → Sector/exposure profile → exposure-driven
+retrieval → classification (regime vs. supporting signal) → applicability →
+evidence`. Concretely (`convex/schema.ts`, `convex/research.ts`,
+`convex/researchActions.ts`, `src/App.tsx`):
+
+- New `companyProfiles` table + a first OpenAI call (Stage 1) that infers
+  sector, business model, geographic footprint, and regulatory exposure
+  areas from the company name alone (general knowledge, no retrieval — a
+  deliberately lightweight exposure map, not corporate intelligence).
+- Firecrawl queries (Stage 2) are now built from the profile's own exposure
+  areas and jurisdictions instead of one generic "<company> regulatory
+  compliance" query — five queries covering regime/law, guidance/
+  consultation, enforcement, a second exposure area, and implementation/
+  effective-date framing. Nothing is hardcoded per company.
+- `findings` gained an ontology (Stage 3 classification): `itemType`
+  (REGULATION_REGIME is first-class; GUIDANCE/CONSULTATION/PROPOSED_RULE/
+  IMPLEMENTATION/ENFORCEMENT/NEWS/COMPANY_POLICY are supporting signals),
+  `regimeKey` (best-effort link from a development back to its regime),
+  `status` (in-force vs. future/proposed vs. guidance vs. enforcement —
+  an established law facing active enforcement is never marked
+  FUTURE_OR_PROPOSED), `applicabilityLevel`/`applicabilityConfidence`
+  (core/adjacent/monitor-only + honesty about uncertainty), and
+  `sourceQuality` (regulator/government vs. official guidance portal vs.
+  secondary reporting). All new `findings` fields are optional at the
+  table level (existing pre-ontology test documents stay valid) but
+  required by `recordFindings`'s own args validator for every new write.
+- The frontend groups the latest run's findings into "Active Regulatory
+  Regimes" / "Upcoming or Changing" / "Recent Regulatory Developments"
+  instead of one flat list, plus a company-profile card. Only the latest
+  run's findings are shown (a watchlist, not an ever-growing dump across
+  every past run for a company) — the underlying data still keeps full
+  history.
+- The `ITEM_TYPES`/`REGULATORY_STATUSES`/`APPLICABILITY_LEVELS`/
+  `SOURCE_QUALITY_TIERS` unions live once in `schema.ts` and are imported
+  into both the Convex mutation validators and the OpenAI Zod schema, so
+  the two can't silently drift apart.
+
+Two real bugs surfaced by running this live against Google, not by
+inspection — kept per AGENTS.md §3 (reproduce → evidence → fix):
+
+1. OpenAI's structured-output API rejects Zod `.optional()` fields
+   ("uses `.optional()` without `.nullable()` which is not supported") —
+   every genuinely-optional field in the classification schema
+   (`regimeKey` and the five date fields) had to become `.nullable()`
+   instead, with `null` normalized back to `undefined` before writing to
+   Convex (whose own `v.optional()` fields expect absence, not `null`).
+2. The profiling model returned `confidence: 0.95` despite an explicit
+   "0-100" instruction — added a `normalizeConfidence` helper that rescales
+   a 0-1 fraction rather than trust prompt wording alone.
+
+Verified with real Firecrawl/OpenAI/Convex calls against Google (EU
+exposure) and DBS Bank (Singapore, financial services) — see hackathon.md
+for the actual findings. Google now surfaces GDPR, the UK Online Safety
+Act, and the EU-US Data Privacy Framework as first-class regimes, with the
+CNIL fine correctly demoted to an ENFORCEMENT development tagged
+`regime=GDPR`. DBS surfaces MAS Notice 637 (capital adequacy), an HKMA
+AML/CTF enforcement action, and Bangladesh banking oversight — a
+completely different regulatory domain set than Google's, driven entirely
+by the inferred sector/exposure profile rather than any per-company
+hardcoding.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator

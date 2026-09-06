@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import {
+  applicabilityLevelValidator,
+  itemTypeValidator,
+  regulatoryStatusValidator,
+  sourceQualityValidator,
+} from "./schema";
 
 export const start = mutation({
   args: { companyId: v.id("companies") },
@@ -33,7 +39,36 @@ export const listByCompany = query({
       .order("desc")
       .collect();
 
-    return { latestRun: runs[0] ?? null, runs, findings };
+    const profiles = await ctx.db
+      .query("companyProfiles")
+      .withIndex("by_companyId", (q) => q.eq("companyId", companyId))
+      .order("desc")
+      .collect();
+
+    return {
+      latestRun: runs[0] ?? null,
+      runs,
+      findings,
+      profile: profiles[0] ?? null,
+    };
+  },
+});
+
+export const recordProfile = internalMutation({
+  args: {
+    companyId: v.id("companies"),
+    researchRunId: v.id("researchRuns"),
+    primarySector: v.string(),
+    secondarySectors: v.array(v.string()),
+    businessModel: v.string(),
+    keyProducts: v.array(v.string()),
+    geographicFootprint: v.array(v.string()),
+    regulatoryExposureAreas: v.array(v.string()),
+    reasoning: v.string(),
+    confidence: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("companyProfiles", { ...args, createdAt: Date.now() });
   },
 });
 
@@ -57,6 +92,17 @@ export const recordFindings = internalMutation({
             retrievedAt: v.number(),
           }),
         ),
+        itemType: itemTypeValidator,
+        regimeKey: v.optional(v.string()),
+        status: regulatoryStatusValidator,
+        applicabilityLevel: applicabilityLevelValidator,
+        applicabilityConfidence: v.number(),
+        sourceQuality: sourceQualityValidator,
+        publicationDate: v.optional(v.string()),
+        effectiveDate: v.optional(v.string()),
+        implementationDate: v.optional(v.string()),
+        consultationDeadline: v.optional(v.string()),
+        reportingDeadline: v.optional(v.string()),
       }),
     ),
   },

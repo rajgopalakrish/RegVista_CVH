@@ -16,21 +16,33 @@ renamed RegLens: every screen starts from a company, not from a regulation.
 
 ## Primary user flow
 
+RegVista's core question: *what regulatory regimes, obligations,
+consultations, proposed changes, guidance, and enforcement developments
+should this company be watching?*
+
 1. User enters a company (name + optional context: industry, HQ country/state,
    website).
-2. RegVista researches the company's regulatory landscape using Firecrawl
-   (source discovery/retrieval from authoritative sites) and OpenAI
-   (structured extraction/classification/relevance reasoning).
-3. RegVista shows the company's:
-   - **Jurisdictions** it is subject to.
-   - **Regulators** with authority over it.
-   - **Regulatory areas** (e.g. data privacy, financial services, labor,
-     environmental).
-   - **Regulations/developments** relevant to it, each with a **relevance
-     score/priority** and a **"why this matters"** explanation.
-   - **Evidence/sources** backing each finding (source URL, title, retrieved
-     date).
-4. User can request an emailed briefing of the current landscape, sent via
+2. RegVista infers a lightweight **company profile** (sector, business
+   model, geographic footprint, regulatory exposure areas) via OpenAI —
+   a useful exposure map, not a full corporate-intelligence dossier.
+3. RegVista researches the company's regulatory landscape using Firecrawl
+   (retrieval driven by the inferred exposure areas/jurisdictions, not a
+   single generic query) and OpenAI (structured extraction/classification).
+4. RegVista shows the company's regulatory landscape as a hierarchy, not a
+   flat list of findings:
+   - **Company profile**: sector, business model, exposure areas, confidence.
+   - **Active Regulatory Regimes**: established regulations/frameworks that
+     are first-class landscape items (e.g. GDPR, the UK Online Safety Act,
+     MAS banking notices) — not enforcement news about them.
+   - **Upcoming / Changing**: proposed rules, consultations, and regimes not
+     yet in force.
+   - **Recent Regulatory Developments**: enforcement actions, investigations,
+     guidance, and company disclosures — supporting signals, ideally tied
+     back to the regime they relate to, not the primary output.
+   - Every item carries **evidence/sources**, a **relevance score**,
+     **applicability** (core/adjacent/monitor-only + confidence), and a
+     **"why this matters"** explanation specific to the company.
+5. User can request an emailed briefing of the current landscape, sent via
    AgentMail.
 
 ## MVP scope (in)
@@ -59,10 +71,28 @@ renamed RegLens: every screen starts from a company, not from a regulation.
 - **Company**: name, optional industry/HQ jurisdiction/website, created at.
 - **ResearchRun**: belongs to a company; status (pending/running/done/error);
   started/finished timestamps.
-- **Finding**: belongs to a research run + company; jurisdiction; regulator;
-  regulatory area; regulation/development title + summary; relevance score
-  (0–100) and rationale ("why this matters"); array of evidence sources
-  (`{url, title, retrievedAt}`).
+- **CompanyProfile**: belongs to a company + the run that produced it; sector,
+  business model, geographic footprint, regulatory exposure areas, and a
+  confidence score. Refreshed each research run.
+- **Finding**: belongs to a research run + company. Beyond jurisdiction/
+  regulator/regulatory area/title/summary/relevance score/"why this
+  matters"/sources, each finding is classified by:
+  - **itemType** — REGULATION_REGIME is first-class; GUIDANCE/CONSULTATION/
+    PROPOSED_RULE/IMPLEMENTATION/ENFORCEMENT/NEWS/COMPANY_POLICY are
+    supporting signals (generic compliance marketing is classified and
+    dropped, never persisted).
+  - **regimeKey** — best-effort link from a supporting item back to the
+    regime it relates to (e.g. an enforcement action tagged "GDPR").
+  - **status** — whether an established regime currently has active
+    obligations, is future/proposed, or the item is guidance/enforcement.
+  - **applicabilityLevel** + **applicabilityConfidence** — core/adjacent/
+    monitor-only, and how confident the model is that this genuinely
+    applies to this company.
+  - **sourceQuality** — regulator/government vs. official guidance portal
+    vs. secondary reporting.
+  - Optional free-text dates (publication/effective/implementation/
+    consultation deadline/reporting deadline) — never fabricated precise
+    dates when the source doesn't give one.
 
 See `docs/architecture.md` for the concrete Convex schema.
 

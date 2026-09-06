@@ -7,58 +7,228 @@ import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import {
+  APPLICABILITY_LEVELS,
+  ITEM_TYPES,
+  REGULATORY_STATUSES,
+  SOURCE_QUALITY_TIERS,
+} from "./schema";
 
-// Only the first three categories are genuine regulatory findings. The last
-// exists so the model has an explicit bucket for company marketing/product
-// pages, ISO/SOC/PCI attestation badges, and generic security whitepapers —
-// findings in that bucket are dropped before anything is persisted.
-const SOURCE_CATEGORIES = [
-  "regulator_or_government",
-  "regulatory_enforcement_or_legal_news",
-  "company_regulatory_disclosure",
-  "generic_compliance_marketing",
-] as const;
+const MODEL = "gpt-4.1-mini";
+
+// ---------------------------------------------------------------------------
+// Stage 1: company profiling — a lightweight exposure map, not a full
+// corporate-intelligence dossier. Pure OpenAI (general knowledge), no
+// Firecrawl: sector/business-model classification for a known company
+// doesn't need fresh retrieval, and keeping this stage cheap/fast matters
+// more than perfect accuracy (the `confidence` field carries the hedge).
+// ---------------------------------------------------------------------------
+
+const ProfileSchema = z.object({
+  primarySector: z.string().describe(
+    "The company's primary sector/industry, e.g. 'Financial Technology / Payments', 'Banking / Financial Services', 'Technology / Internet / Digital Platforms'.",
+  ),
+  secondarySectors: z
+    .array(z.string())
+    .max(5)
+    .describe("Additional sectors the company meaningfully operates in, if any. Empty array if none."),
+  businessModel: z.string().describe("One or two sentences on how the company actually makes money and operates."),
+  keyProducts: z.array(z.string()).max(8),
+  geographicFootprint: z
+    .array(z.string())
+    .max(6)
+    .describe(
+      "Jurisdictions/regions where the company has meaningful operations or user/customer base (e.g. 'United States', 'European Union', 'Singapore', 'Global'). List the most regulatorily significant ones first.",
+    ),
+  regulatoryExposureAreas: z
+    .array(z.string())
+    .min(1)
+    .max(6)
+    .describe(
+      "Broad regulatory domains this company's actual business activity plausibly exposes it to — domains, not specific law names (e.g. 'data protection & privacy', 'digital platform / online safety regulation', 'antitrust & competition', 'payment services & e-money regulation', 'banking & prudential regulation', 'anti-money laundering & counter-terrorist financing', 'labor & worker classification', 'advertising & consumer protection', 'AI regulation', 'environmental regulation'). A later research step finds the specific instruments (e.g. GDPR, DSA) within these domains — do not name specific laws here.",
+    ),
+  reasoning: z.string().describe("Brief explanation of why this sector/exposure classification fits this company."),
+  confidence: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe(
+      "How confident you are in this profile given your knowledge of the company. Lower this for a less well-known company or one your knowledge of may be dated or thin, rather than presenting a guess as certain.",
+    ),
+});
+
+type Profile = z.infer<typeof ProfileSchema>;
+
+async function inferCompanyProfile(
+  openai: OpenAI,
+  company: { name: string; industry?: string; hqJurisdiction?: string },
+): Promise<Profile> {
+  const completion = await openai.chat.completions.parse({
+    model: MODEL,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You build a lightweight regulatory exposure map for a company — " +
+          "not a full corporate-intelligence dossier. Use your general " +
+          "knowledge of the company. If you are not confident about a " +
+          "company's specifics, reflect that with a lower confidence score " +
+          "rather than presenting a guess as certain. Do not name specific " +
+          "regulations or regimes here — only the company's sector, " +
+          "business model, geographic footprint, and the broad regulatory " +
+          "domains its actual business activity would plausibly expose it " +
+          "to. A later step finds the specific instruments.",
+      },
+      {
+        role: "user",
+        content:
+          `Company: ${company.name}` +
+          (company.industry ? ` (user-provided industry hint: ${company.industry})` : "") +
+          (company.hqJurisdiction ? ` (user-provided HQ hint: ${company.hqJurisdiction})` : "") +
+          "\n\nInfer this company's profile for the purpose of scoping regulatory research.",
+      },
+    ],
+    response_format: zodResponseFormat(ProfileSchema, "company_profile"),
+  });
+
+  const profile = completion.choices[0]?.message.parsed;
+  if (!profile) {
+    throw new Error("OpenAI returned no parsed company profile");
+  }
+  return profile;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: exposure-driven Firecrawl retrieval. Queries are built from the
+// inferred profile's own exposure areas and geographic footprint — nothing
+// here names a specific company's regulations, so the same logic drives
+// retrieval for any company.
+// ---------------------------------------------------------------------------
+
+function buildSearchQueries(companyName: string, profile: Profile): string[] {
+  const exposures = profile.regulatoryExposureAreas.slice(0, 3);
+  const jurisdictions = profile.geographicFootprint.filter(
+    (j) => j.toLowerCase() !== "global",
+  );
+  const primaryJurisdiction = jurisdictions[0];
+  const secondaryJurisdiction = jurisdictions[1];
+
+  const queries: string[] = [];
+
+  // Regulatory regimes/laws for the top exposure area, anchored to the
+  // company's primary jurisdiction where known.
+  queries.push(
+    [companyName, primaryJurisdiction, exposures[0], "regulation law"]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  // Official regulator guidance, consultations, and proposed rules.
+  if (exposures[0]) {
+    queries.push(
+      `${companyName} ${exposures[0]} regulator guidance OR consultation OR "proposed rule"`,
+    );
+  }
+
+  // Enforcement/investigation — kept broad rather than exposure-scoped,
+  // since enforcement search benefits from not over-narrowing.
+  queries.push(`${companyName} regulatory investigation enforcement fine penalty`);
+
+  // A second exposure area, optionally anchored to a secondary jurisdiction
+  // (e.g. a US company's EU exposure), to widen jurisdictional coverage.
+  if (exposures[1]) {
+    queries.push(
+      [companyName, secondaryJurisdiction ?? primaryJurisdiction, exposures[1], "regulation"]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+
+  // Implementation/effective-date material for the top exposure area.
+  if (exposures[0]) {
+    queries.push(
+      `${companyName} ${exposures[0]} "effective date" OR implementation OR "compliance deadline"`,
+    );
+  }
+
+  return queries;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3: classification. A regulation/regime is a first-class landscape
+// item; enforcement/news/guidance are supporting developments, ideally tied
+// back to a regime via regimeKey. Generic company marketing is its own
+// bucket so it can be dropped before anything is persisted (see
+// CLASSIFICATION_ITEM_TYPES / the itemType filter below).
+// ---------------------------------------------------------------------------
+
+const CLASSIFICATION_ITEM_TYPES = [...ITEM_TYPES, "GENERIC_COMPLIANCE_MARKETING"] as const;
 
 // Below this, a finding is too weak/indirect to show as part of the
 // company's regulatory landscape, even if it has a source URL.
 const MIN_RELEVANCE_SCORE = 40;
 
 const FindingSchema = z.object({
-  findings: z.array(
-    z.object({
-      jurisdiction: z.string(),
-      regulator: z.string().describe(
-        "The specific named regulator or government authority (e.g. 'European Commission', 'U.S. Federal Trade Commission', 'UK Information Commissioner's Office'). Never a vague phrase like 'various bodies' or 'industry standards organizations'.",
-      ),
-      regulatoryArea: z.string(),
-      title: z.string(),
-      summary: z.string(),
-      relevanceScore: z
-        .number()
-        .min(0)
-        .max(100)
-        .describe(
-          "80-100: a binding obligation, active enforcement action, fine, or investigation naming the company, from an authoritative source. " +
-            "50-79: a regulatory framework/licensing requirement clearly and specifically applicable to the company's actual operations. " +
-            "20-49: plausible but weakly evidenced or indirect. 0-19: marginal or speculative. " +
-            "A company's own marketing copy about voluntary certifications is not, by itself, evidence of a regulatory obligation.",
+  findings: z
+    .array(
+      z.object({
+        itemType: z.enum(CLASSIFICATION_ITEM_TYPES).describe(
+          "REGULATION_REGIME: an actual regulation/law/regulatory regime or instrument (e.g. GDPR, the EU DSA). GUIDANCE: official regulator interpretive guidance. CONSULTATION: an open regulatory consultation. PROPOSED_RULE: a bill or proposed rule not yet in force. IMPLEMENTATION: material about effective dates / implementation timelines / compliance deadlines for a regime. ENFORCEMENT: an enforcement action, investigation, or fine. NEWS: credible regulatory/legal news not itself an enforcement action. COMPANY_POLICY: the company's OWN regulatory disclosure/filing describing an obligation imposed on it by an outside authority (e.g. an SEC filing, a DMA compliance report, a money-transmitter license registration) — genuine evidence, not marketing. GENERIC_COMPLIANCE_MARKETING: the company's own product/marketing pages about voluntary certifications (ISO, SOC 2, PCI as a selling point), trust-center pages, or security whitepapers with no named external regulatory obligation — use this whenever the source is the company promoting its own compliance posture rather than describing a real obligation, and it will be discarded.",
         ),
-      whyItMatters: z
-        .string()
-        .describe(
-          "Specific to this company's actual business and situation. Not generic boilerplate like 'compliance builds trust' or 'protects customer data'.",
+        regimeKey: z
+          .string()
+          .nullable()
+          .describe(
+            "Short name of the regulatory regime this item is or relates to (e.g. 'GDPR', 'EU DSA', 'EU DMA', 'EU AI Act', 'PSD2', 'California AB5'). Required whenever itemType is REGULATION_REGIME. For a supporting item (ENFORCEMENT/NEWS/GUIDANCE/etc.), set it to the regime it relates to if there is a clear one, otherwise null.",
+          ),
+        jurisdiction: z.string(),
+        regulator: z.string().describe(
+          "The specific named regulator or government authority (e.g. 'European Commission', 'U.S. Federal Trade Commission', 'Monetary Authority of Singapore'). Never a vague phrase like 'various bodies' or 'industry standards organizations'.",
         ),
-      sourceCategory: z.enum(SOURCE_CATEGORIES).describe(
-        "regulator_or_government: an official regulator/government publication. " +
-          "regulatory_enforcement_or_legal_news: credible reporting on an actual enforcement action, fine, investigation, or ruling. " +
-          "company_regulatory_disclosure: the company's own filing/disclosure describing an obligation imposed on it by an outside authority (e.g. an SEC filing, a DMA compliance report, a money-transmitter license registration) — not marketing. " +
-          "generic_compliance_marketing: the company's own product/marketing pages about voluntary certifications (ISO, SOC 2, PCI attestations as a selling point), trust-center pages, or security whitepapers with no named external regulatory obligation. Use this whenever the source is the company promoting its own compliance posture to its customers rather than describing a real obligation imposed on it.",
-      ),
-      sourceUrls: z
-        .array(z.string())
-        .describe("URLs (from the provided sources) that support this finding"),
-    }),
-  ),
+        regulatoryArea: z.string(),
+        title: z.string(),
+        summary: z.string(),
+        status: z.enum(REGULATORY_STATUSES).describe(
+          "PASSED_NO_ACTIVE_OBLIGATIONS: an established regime with no pending/ongoing obligation highlighted by the evidence. PASSED_PENDING_OR_ONGOING_OBLIGATIONS: an established, already-effective regime with active/ongoing compliance obligations — this is the status for an established law facing active enforcement, never FUTURE_OR_PROPOSED. FUTURE_OR_PROPOSED: not yet in force (a bill, proposed rule, or a regime with a future effective date). GUIDANCE_INTERPRETATION: official interpretive guidance, not a new obligation itself. ENFORCEMENT_DEVELOPMENT: an enforcement action, investigation, or fine — a development, not a regime status. Do not mark an established regulation FUTURE_OR_PROPOSED merely because it has upcoming enforcement activity.",
+        ),
+        applicabilityLevel: z.enum(APPLICABILITY_LEVELS).describe(
+          "CORE_EXPOSURE: central to the company's actual business activity. ADJACENT_EXPOSURE: applies via a secondary or supporting activity. MONITOR_ONLY: plausible future/indirect relevance worth watching, not a current core obligation.",
+        ),
+        applicabilityConfidence: z
+          .number()
+          .min(0)
+          .max(100)
+          .describe(
+            "How confident you are that this genuinely applies to this specific company's actual operations, given the evidence and the company profile. Lower this when the evidence is generic or the link to the company is inferred rather than stated. Never invent applicability.",
+          ),
+        relevanceScore: z
+          .number()
+          .min(0)
+          .max(100)
+          .describe(
+            "Weigh regulatory authority of the source, importance of the regime, applicability to this company, and evidence quality — not merely that a source mentions regulation. 80-100: a binding obligation, active enforcement action, fine, or investigation naming the company, or a regime central to its core business, from an authoritative source. 50-79: a regulatory framework/licensing requirement clearly and specifically applicable to the company's actual operations. 20-49: plausible but weakly evidenced or indirect. 0-19: marginal or speculative. A company's own marketing copy about voluntary certifications is not, by itself, evidence of a regulatory obligation.",
+          ),
+        whyItMatters: z
+          .string()
+          .describe(
+            "Connect company -> sector/business activity -> regulatory regime, specific to this company (e.g. 'This company's operation of large online platforms and advertising services creates exposure to EU digital-platform regulation'). Not generic boilerplate like 'compliance builds trust'.",
+          ),
+        sourceQuality: z.enum(SOURCE_QUALITY_TIERS).describe(
+          "TIER_1_REGULATOR_GOVERNMENT: an official regulator/government/legislation-portal publication. TIER_2_OFFICIAL_GUIDANCE_CONSULTATION: an official consultation/guidance portal. TIER_3_SECONDARY_REPORTING: high-quality secondary reporting (reputable news/legal analysis) or the company's own disclosure/filing.",
+        ),
+        publicationDate: z.string().nullable().describe("As stated by the source, in whatever precision it gives (e.g. 'March 2025'). Null if unknown — never invent a date."),
+        effectiveDate: z.string().nullable(),
+        implementationDate: z.string().nullable(),
+        consultationDeadline: z.string().nullable(),
+        reportingDeadline: z.string().nullable(),
+        sourceUrls: z
+          .array(z.string())
+          .describe("URLs (from the provided sources) that support this finding"),
+      }),
+    )
+    .describe(
+      "Return roughly 5-12 of the highest-value items: a mix of the company's most important established regulatory regimes and the most important upcoming/enforcement developments. Do not pad with marginal items just to fill a quota.",
+    ),
 });
 
 /**
@@ -84,25 +254,35 @@ export const run = internalAction({
         throw new Error(`Company ${companyId} not found`);
       }
 
-      const firecrawl = new Firecrawl({ apiKey: requireEnv("FIRECRAWL_API_KEY") });
+      const openai = new OpenAI({ apiKey: requireEnv("OPENAI_API_KEY") });
 
-      // Two targeted queries instead of one generic "compliance" query: a
-      // company's own marketing/product pages dominate a plain "<company>
-      // regulatory compliance" search because of ordinary SEO/domain
-      // authority, not because they're good regulatory findings. Framing
-      // one query around enforcement/investigation and the other around
-      // the legal frameworks that actually govern the company's operations
-      // surfaces regulator, government, and news sources instead.
-      const industrySuffix = company.industry ? ` ${company.industry}` : "";
-      const searchQueries = [
-        `${company.name} regulatory investigation enforcement fine penalty`,
-        `${company.name}${industrySuffix} regulation law license requirement government`,
-      ];
+      // --- Stage 1: company profiling ---
+      const rawProfile = await inferCompanyProfile(openai, company);
+      // Models sometimes return confidence as a 0-1 fraction despite the
+      // 0-100 instruction; normalize defensively rather than display "0.95".
+      const profile = { ...rawProfile, confidence: normalizeConfidence(rawProfile.confidence) };
+      console.log(`[research:${runId}] profile`, {
+        primarySector: profile.primarySector,
+        secondarySectors: profile.secondarySectors,
+        geographicFootprint: profile.geographicFootprint,
+        regulatoryExposureAreas: profile.regulatoryExposureAreas,
+        confidence: profile.confidence,
+      });
+      await ctx.runMutation(internal.research.recordProfile, {
+        companyId,
+        researchRunId: runId,
+        ...profile,
+      });
+
+      // --- Stage 2: exposure-driven retrieval ---
+      const firecrawl = new Firecrawl({ apiKey: requireEnv("FIRECRAWL_API_KEY") });
+      const searchQueries = buildSearchQueries(company.name, profile);
+      console.log(`[research:${runId}] search queries`, searchQueries);
 
       const searchResults = await Promise.all(
         searchQueries.map((query) =>
           firecrawl.search(query, {
-            limit: 5,
+            limit: 4,
             scrapeOptions: { formats: ["markdown"] },
           }),
         ),
@@ -110,6 +290,7 @@ export const run = internalAction({
 
       const retrievedAt = Date.now();
       const seenUrls = new Set<string>();
+      const rawCount = searchResults.reduce((n, r) => n + (r.web?.length ?? 0), 0);
       const documents = searchResults
         .flatMap((result) => result.web ?? [])
         .filter(
@@ -122,8 +303,11 @@ export const run = internalAction({
           seenUrls.add(url);
           return true;
         })
-        // Bound the prompt: two queries can return up to 10 raw results.
-        .slice(0, 10);
+        // Bound the prompt: five queries can return up to 20 raw results.
+        .slice(0, 14);
+      console.log(
+        `[research:${runId}] retrieval: ${rawCount} raw, ${documents.length} scrapeable+deduped sources`,
+      );
 
       if (documents.length === 0) {
         await ctx.runMutation(internal.research.updateRunStatus, {
@@ -142,9 +326,9 @@ export const run = internalAction({
         content: doc.markdown.slice(0, 6000),
       }));
 
-      const openai = new OpenAI({ apiKey: requireEnv("OPENAI_API_KEY") });
+      // --- Stage 3: classification ---
       const completion = await openai.chat.completions.parse({
-        model: "gpt-4.1-mini",
+        model: MODEL,
         messages: [
           {
             role: "system",
@@ -156,43 +340,45 @@ export const run = internalAction({
               "provided sources. Never invent a regulator, regulation, date, " +
               "or jurisdiction. If a source does not support any regulatory " +
               "finding, do not fabricate one from it.\n\n" +
-              "RegVista's promise is 'enter a company, see its regulatory " +
-              "world' — real regulatory obligations, authorities, " +
-              "regulations, or regulatory developments that apply to the " +
-              "company, not a description of the company's own compliance " +
-              "posture. A company's marketing page listing its ISO/SOC 2/" +
-              "PCI certifications, a cloud provider's page selling " +
-              "'compliance support' to its customers, or a generic " +
+              "RegVista's question is: what regulatory regimes, obligations, " +
+              "consultations, proposed changes, guidance, and enforcement " +
+              "developments should this company be watching? A regulation " +
+              "or regulatory regime is the primary kind of result — " +
+              "enforcement, investigations, and news are supporting " +
+              "developments, ideally tied back to the regime they relate to " +
+              "via regimeKey. A company's marketing page listing its " +
+              "ISO/SOC 2/PCI certifications, a cloud provider's page " +
+              "selling 'compliance support' to its customers, or a generic " +
               "security whitepaper are NOT regulatory findings even though " +
-              "they mention regulations by name — they describe the " +
-              "company's own voluntary claims, not an obligation imposed " +
-              "on it by an outside authority. Classify every finding's " +
-              "sourceCategory honestly per its description, and set " +
-              "relevanceScore using the rubric in that field's " +
-              "description — do not inflate the score just because a " +
-              "source uses regulatory-sounding language.",
+              "they mention regulations by name — classify those as " +
+              "GENERIC_COMPLIANCE_MARKETING. Classify honestly per each " +
+              "field's description and do not inflate scores just because " +
+              "a source uses regulatory-sounding language.",
           },
           {
             role: "user",
             content:
-              `Company: ${company.name}` +
-              (company.industry ? ` (industry: ${company.industry})` : "") +
-              (company.hqJurisdiction ? ` (HQ: ${company.hqJurisdiction})` : "") +
-              "\n\nSources (JSON array, each with an index, url, title, and " +
+              `Company: ${company.name}\n` +
+              `Sector: ${profile.primarySector}` +
+              (profile.secondarySectors.length ? ` (also: ${profile.secondarySectors.join(", ")})` : "") +
+              `\nBusiness model: ${profile.businessModel}\n` +
+              `Geographic footprint: ${profile.geographicFootprint.join(", ")}\n` +
+              `Regulatory exposure areas: ${profile.regulatoryExposureAreas.join(", ")}\n` +
+              "\nSources (JSON array, each with an index, url, title, and " +
               "scraped content):\n" +
               JSON.stringify(sourcesForPrompt) +
-              "\n\nExtract this company's regulatory landscape: real " +
-              "regulators/government authorities, actual regulations or " +
-              "regulatory developments, and genuine obligations that apply " +
-              "to this specific company's own operations. Prefer sources " +
-              "that are regulator/government publications, credible " +
-              "reporting on an enforcement action, or the company's own " +
-              "regulatory disclosures over the company's marketing pages. " +
+              "\n\nBuild this company's regulatory landscape: the " +
+              "regulatory regimes/instruments that actually apply given its " +
+              "sector and business activity above, plus the most important " +
+              "upcoming changes and recent enforcement/developments. Prefer " +
+              "regulator/government publications and official " +
+              "guidance/consultation portals over secondary reporting, and " +
+              "prefer secondary reporting over the company's own pages. " +
               "For each finding, set sourceUrls to the url(s) (verbatim, " +
               "from the sources above) that support it.",
           },
         ],
-        response_format: zodResponseFormat(FindingSchema, "regulatory_findings"),
+        response_format: zodResponseFormat(FindingSchema, "regulatory_landscape"),
       });
 
       const parsed = completion.choices[0]?.message.parsed;
@@ -202,20 +388,39 @@ export const run = internalAction({
         sourcesForPrompt.map((s) => [s.url, { url: s.url, title: s.title }]),
       );
 
-      const findings = extractedFindings
-        // Never present a company's own marketing/certification pages as a
-        // regulatory finding, and never keep an obviously weak finding just
-        // because it happens to cite a source URL.
-        .filter((f) => f.sourceCategory !== "generic_compliance_marketing")
+      const droppedMarketing = extractedFindings.filter(
+        (f) => f.itemType === "GENERIC_COMPLIANCE_MARKETING",
+      ).length;
+      const candidatesAfterMarketingFilter = extractedFindings.filter(
+        (f): f is typeof extractedFindings[number] & { itemType: (typeof ITEM_TYPES)[number] } =>
+          f.itemType !== "GENERIC_COMPLIANCE_MARKETING",
+      );
+      const droppedWeak = candidatesAfterMarketingFilter.filter(
+        (f) => f.relevanceScore < MIN_RELEVANCE_SCORE,
+      ).length;
+
+      const findings = candidatesAfterMarketingFilter
+        // Never keep an obviously weak finding just because it cites a URL.
         .filter((f) => f.relevanceScore >= MIN_RELEVANCE_SCORE)
         .map((f) => ({
+          itemType: f.itemType,
+          regimeKey: f.regimeKey ?? undefined,
           jurisdiction: f.jurisdiction,
           regulator: f.regulator,
           regulatoryArea: f.regulatoryArea,
           title: f.title,
           summary: f.summary,
+          status: f.status,
+          applicabilityLevel: f.applicabilityLevel,
+          applicabilityConfidence: normalizeConfidence(f.applicabilityConfidence),
           relevanceScore: f.relevanceScore,
           whyItMatters: f.whyItMatters,
+          sourceQuality: f.sourceQuality,
+          publicationDate: f.publicationDate ?? undefined,
+          effectiveDate: f.effectiveDate ?? undefined,
+          implementationDate: f.implementationDate ?? undefined,
+          consultationDeadline: f.consultationDeadline ?? undefined,
+          reportingDeadline: f.reportingDeadline ?? undefined,
           sources: f.sourceUrls
             .map((url) => urlToSource.get(url))
             .filter((s): s is { url: string; title: string } => Boolean(s))
@@ -223,6 +428,12 @@ export const run = internalAction({
         }))
         // AGENTS.md §8: never present a finding without evidence.
         .filter((f) => f.sources.length > 0);
+
+      console.log(
+        `[research:${runId}] classification: ${extractedFindings.length} candidates, ` +
+          `dropped ${droppedMarketing} generic-marketing, ${droppedWeak} below relevance ` +
+          `threshold; kept ${findings.length}`,
+      );
 
       await ctx.runMutation(internal.research.recordFindings, {
         companyId,
@@ -243,6 +454,14 @@ export const run = internalAction({
     }
   },
 });
+
+// Models sometimes return a confidence-like field as a 0-1 fraction despite
+// being told 0-100 (e.g. 0.95 instead of 95). Rescale rather than let a
+// stray "Confidence 0.95/100" reach the UI.
+function normalizeConfidence(value: number): number {
+  const rescaled = value > 0 && value <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, Math.round(rescaled)));
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];

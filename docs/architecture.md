@@ -39,6 +39,20 @@ researchRuns: {
   finishedAt?: number
 }
 
+companyProfiles: {
+  companyId: Id<"companies">
+  researchRunId: Id<"researchRuns">
+  primarySector: string
+  secondarySectors: string[]
+  businessModel: string
+  keyProducts: string[]
+  geographicFootprint: string[]
+  regulatoryExposureAreas: string[]
+  reasoning: string
+  confidence: number            // 0-100
+  createdAt: number
+}
+
 findings: {
   companyId: Id<"companies">
   researchRunId: Id<"researchRuns">
@@ -51,12 +65,38 @@ findings: {
   whyItMatters: string
   sources: Array<{ url: string; title: string; retrievedAt: number }>
   createdAt: number
+
+  // Regulatory ontology — optional at the table level so pre-ontology test
+  // documents stay valid; convex/research.ts's recordFindings mutation
+  // requires all of them for every new write.
+  itemType?: "REGULATION_REGIME" | "GUIDANCE" | "CONSULTATION"
+    | "PROPOSED_RULE" | "IMPLEMENTATION" | "ENFORCEMENT" | "NEWS"
+    | "COMPANY_POLICY"
+  regimeKey?: string             // e.g. "GDPR" — best-effort grouping, not a foreign key
+  status?: "PASSED_NO_ACTIVE_OBLIGATIONS" | "PASSED_PENDING_OR_ONGOING_OBLIGATIONS"
+    | "FUTURE_OR_PROPOSED" | "GUIDANCE_INTERPRETATION" | "ENFORCEMENT_DEVELOPMENT"
+  applicabilityLevel?: "CORE_EXPOSURE" | "ADJACENT_EXPOSURE" | "MONITOR_ONLY"
+  applicabilityConfidence?: number  // 0-100
+  sourceQuality?: "TIER_1_REGULATOR_GOVERNMENT"
+    | "TIER_2_OFFICIAL_GUIDANCE_CONSULTATION" | "TIER_3_SECONDARY_REPORTING"
+  publicationDate?: string       // free text, e.g. "March 2025" — never a fabricated precise date
+  effectiveDate?: string
+  implementationDate?: string
+  consultationDeadline?: string
+  reportingDeadline?: string
 }
 ```
 
+The `itemType`/`status`/`applicabilityLevel`/`sourceQuality` unions are
+defined once in `schema.ts` (`ITEM_TYPES`, `REGULATORY_STATUSES`, etc.) and
+imported into both `research.ts`'s mutation validators and
+`researchActions.ts`'s Zod schema, so the Convex schema and the OpenAI
+structured-output schema can't drift apart.
+
 Indexes: `companies` has no unique constraint on `name` for the MVP (a
-company can be re-researched, producing a new run); `researchRuns` and
-`findings` are indexed `by_companyId` for the reactive per-company views.
+company can be re-researched, producing a new run); `researchRuns`,
+`companyProfiles`, and `findings` are indexed `by_companyId` for the
+reactive per-company views.
 
 ## Convex functions
 
@@ -67,11 +107,29 @@ company can be re-researched, producing a new run); `researchRuns` and
 - `research.ts`
   - `start` (mutation): create a `researchRuns` row in `pending` state,
     schedule the `run` action via `ctx.scheduler.runAfter`, return the run id.
-  - `run` (internalAction): the pipeline — Firecrawl search/scrape for the
-    company's regulatory footprint → OpenAI structured extraction into
-    `Finding[]` → internal mutations to persist findings → mark the run
-    `done` (or `error` with a message, never silently swallowed).
-  - `listByCompany` (query): reactive findings + run status for a company.
+  - `recordProfile` (internalMutation): persist the inferred company profile.
+  - `recordFindings` (internalMutation): persist classified findings; its
+    args validator requires the full ontology (itemType/status/
+    applicability/sourceQuality) on every new write.
+  - `listByCompany` (query): reactive findings + profile + run status for a
+    company.
+  - `run` (internalAction, in `researchActions.ts`) — three stages:
+    1. **Company profiling**: one OpenAI call infers sector, business model,
+       geographic footprint, and regulatory exposure areas from the
+       company name (general knowledge, no retrieval — a lightweight
+       exposure map, not corporate intelligence).
+    2. **Exposure-driven retrieval**: Firecrawl queries are built from the
+       profile's own exposure areas and jurisdictions (regime/law framing,
+       guidance/consultation framing, enforcement framing, a second
+       exposure area, implementation/effective-date framing) — nothing is
+       hardcoded per company.
+    3. **Classification**: one OpenAI call turns the deduped sources into
+       typed findings — a regulation/regime is a first-class item;
+       enforcement/news/guidance are supporting developments tied back to
+       a regime via `regimeKey` where possible. Generic company marketing
+       is its own classification bucket and is dropped in code, along with
+       anything below a minimum relevance score, regardless of what the
+       model returns.
 - `notify.ts`
   - `sendBriefing` (action): render the current findings for a company into
     an email body and send via AgentMail to a user-supplied address.
