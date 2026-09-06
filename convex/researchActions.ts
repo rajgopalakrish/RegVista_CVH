@@ -423,12 +423,15 @@ export const run = internalAction({
               `Geographic footprint: ${profile.geographicFootprint.join(", ")}\n` +
               `Regulatory exposure areas: ${profile.regulatoryExposureAreas.join(", ")}\n` +
               (jurisdiction
-                ? `\nRequested jurisdiction: ${jurisdiction}. This research is scoped to ` +
-                  `${jurisdiction} — prioritize regimes/developments that apply there. Only ` +
-                  `include an item from a different jurisdiction if the evidence for it is ` +
-                  `unusually strong and directly relevant to the company; set its jurisdiction ` +
-                  `field to where it actually applies (never relabel it as ${jurisdiction}), and ` +
-                  `do not let such items crowd out ${jurisdiction}-specific findings.\n`
+                ? `\nRequested jurisdiction: ${jurisdiction}. This research is HARD-SCOPED to ` +
+                  `${jurisdiction} — every finding you return must be a regime or development that ` +
+                  `actually applies within ${jurisdiction} (its jurisdiction field must be ` +
+                  `${jurisdiction}, a clear part of it, e.g. an EU member state regulator acting ` +
+                  `under an EU-wide regime, or a truly global/international standard that applies ` +
+                  `everywhere including ${jurisdiction}). Do NOT include a finding whose jurisdiction ` +
+                  `is a different specific country or region, even if it is globally significant news ` +
+                  `— such items will be discarded before the user ever sees them, so do not spend ` +
+                  `output on them.\n`
                 : "") +
               "\nSources (JSON array, each with an index, url, title, and " +
               "scraped content):\n" +
@@ -466,63 +469,85 @@ export const run = internalAction({
       const droppedWeak = candidatesAfterMarketingFilter.filter(
         (f) => f.relevanceScore < MIN_RELEVANCE_SCORE,
       ).length;
+      const candidatesAfterRelevanceFilter = candidatesAfterMarketingFilter.filter(
+        (f) => f.relevanceScore >= MIN_RELEVANCE_SCORE,
+      );
 
-      const findings = candidatesAfterMarketingFilter
-        // Never keep an obviously weak finding just because it cites a URL.
-        .filter((f) => f.relevanceScore >= MIN_RELEVANCE_SCORE)
-        .map((f) => ({
-          itemType: f.itemType,
-          regimeKey: f.regimeKey ?? undefined,
-          jurisdiction: f.jurisdiction,
-          regulator: f.regulator,
-          regulatoryArea: f.regulatoryArea,
-          title: f.title,
-          // The model's own applicabilityEvidence field is a self-report —
-          // testing showed it can correctly flag a claim as not directly
-          // evidenced while still writing the claim as unhedged fact in
-          // the prose (in either summary or whyItMatters). Add a caveat
-          // rather than trust the free text alone.
-          summary: withEvidenceCaveatIfNeeded(f.summary, f.applicabilityEvidence),
-          status: f.status,
-          applicabilityLevel: f.applicabilityLevel,
-          applicabilityConfidence: normalizeConfidence(f.applicabilityConfidence),
-          applicabilityEvidence: f.applicabilityEvidence,
-          relevanceScore: f.relevanceScore,
-          whyItMatters: withEvidenceCaveatIfNeeded(f.whyItMatters, f.applicabilityEvidence),
-          sourceQuality: f.sourceQuality,
-          publicationDate: f.publicationDate ?? undefined,
-          effectiveDate: f.effectiveDate ?? undefined,
-          implementationDate: f.implementationDate ?? undefined,
-          consultationDeadline: f.consultationDeadline ?? undefined,
-          reportingDeadline: f.reportingDeadline ?? undefined,
-          // Where a finding cites more than one source, put the most
-          // authoritative one first so it reads as the primary evidence
-          // and the rest as supporting.
-          sources: f.sourceUrls
-            .map((url) => urlToSource.get(url))
-            .filter((s): s is { url: string; title: string } => Boolean(s))
-            .map((s) => ({ ...s, retrievedAt }))
-            .sort((a, b) => sourceAuthorityRank(a.url) - sourceAuthorityRank(b.url)),
-        }))
+      // Hard jurisdiction scope: when the user explicitly selected one, an
+      // item whose jurisdiction is a different specific country/region is
+      // dropped from the main landscape entirely — not retrieved globally
+      // and merely labeled "outside jurisdiction". The classification
+      // prompt already asks for this; this is the code-side backstop for
+      // when it doesn't comply, same pattern as the evidence guardrail
+      // below. A genuinely global/international item still passes through
+      // (it does apply within the requested jurisdiction too).
+      const droppedOutOfJurisdiction = jurisdiction
+        ? candidatesAfterRelevanceFilter.filter(
+            (f) => !jurisdictionMatchesRequested(f.jurisdiction, jurisdiction),
+          ).length
+        : 0;
+      const candidatesInScope = jurisdiction
+        ? candidatesAfterRelevanceFilter.filter((f) =>
+            jurisdictionMatchesRequested(f.jurisdiction, jurisdiction),
+          )
+        : candidatesAfterRelevanceFilter;
+
+      let neutralizedCount = 0;
+      const findings = candidatesInScope
+        .map((f) => {
+          const claimContext = { regimeLabel: f.regimeKey ?? f.title, regulatoryArea: f.regulatoryArea };
+          const summary = neutralizeUnsupportedClaims(f.summary, f.applicabilityEvidence, claimContext);
+          const whyItMatters = neutralizeUnsupportedClaims(
+            f.whyItMatters,
+            f.applicabilityEvidence,
+            claimContext,
+          );
+          if (summary !== f.summary || whyItMatters !== f.whyItMatters) neutralizedCount++;
+          return {
+            itemType: f.itemType,
+            regimeKey: f.regimeKey ?? undefined,
+            jurisdiction: f.jurisdiction,
+            regulator: f.regulator,
+            regulatoryArea: f.regulatoryArea,
+            title: f.title,
+            summary,
+            status: f.status,
+            applicabilityLevel: f.applicabilityLevel,
+            applicabilityConfidence: normalizeConfidence(f.applicabilityConfidence),
+            applicabilityEvidence: f.applicabilityEvidence,
+            relevanceScore: f.relevanceScore,
+            whyItMatters,
+            sourceQuality: f.sourceQuality,
+            publicationDate: f.publicationDate ?? undefined,
+            effectiveDate: f.effectiveDate ?? undefined,
+            implementationDate: f.implementationDate ?? undefined,
+            consultationDeadline: f.consultationDeadline ?? undefined,
+            reportingDeadline: f.reportingDeadline ?? undefined,
+            // Where a finding cites more than one source, put the most
+            // authoritative one first and any generic/low-quality source
+            // (Wikipedia, a compliance-vendor blog, etc.) last, so it reads
+            // as primary evidence plus supporting context rather than
+            // equivalent citations.
+            sources: f.sourceUrls
+              .map((url) => urlToSource.get(url))
+              .filter((s): s is { url: string; title: string } => Boolean(s))
+              .map((s) => ({ ...s, retrievedAt }))
+              .sort((a, b) => sourceAuthorityRank(a.url) - sourceAuthorityRank(b.url)),
+          };
+        })
         // AGENTS.md §8: never present a finding without evidence.
         .filter((f) => f.sources.length > 0);
 
       console.log(
         `[research:${runId}] classification: ${extractedFindings.length} candidates, ` +
           `dropped ${droppedMarketing} generic-marketing, ${droppedWeak} below relevance ` +
-          `threshold; kept ${findings.length}`,
+          `threshold, ${droppedOutOfJurisdiction} outside requested jurisdiction; kept ${findings.length}`,
       );
-
-      const caveatedCount = findings.filter(
-        (f) =>
-          f.summary.startsWith(EVIDENCE_CAVEAT_PREFIX) ||
-          f.whyItMatters.startsWith(EVIDENCE_CAVEAT_PREFIX),
-      ).length;
-      if (caveatedCount > 0) {
+      if (neutralizedCount > 0) {
         console.warn(
-          `[research:${runId}] added an evidence caveat to ${caveatedCount} finding(s): ` +
-            `applicabilityEvidence wasn't DIRECTLY_EVIDENCED but the model's own text stated ` +
-            `a specific designation/license/threshold/enforcement claim unhedged`,
+          `[research:${runId}] rewrote unsupported designation/status prose in ${neutralizedCount} ` +
+            `finding(s): applicabilityEvidence wasn't DIRECTLY_EVIDENCED but the model's own text ` +
+            `asserted a specific designation/license/threshold/enforcement claim as fact`,
         );
       }
 
@@ -560,50 +585,86 @@ function isUsableSource(title: string | undefined, url: string | undefined): boo
   return true;
 }
 
-// Detector for a specific-designation claim (gatekeeper, VLOP/VLOSE, a
-// license, a named enforcement outcome, etc.) stated without any hedging
-// language nearby. General term lists, not tied to any one company or
-// regime. Feeds withEvidenceCaveatIfNeeded() below, which adds a caveat
-// (never rewrites or drops a finding) when this fires alongside an
-// applicabilityEvidence level other than DIRECTLY_EVIDENCED.
-const DESIGNATION_CLAIM_TERMS =
-  /\b(gatekeeper|VLOP|VLOSE|designated as|license[d]? (as|to|no\.?)|authoriz(ed|ation) (as|to)|registered as|found (guilty|liable)|ordered to pay|fined \$?\S|convicted)\b/i;
+// Categorized detectors for a specific regulatory-status claim (gatekeeper,
+// VLOP/VLOSE, a licence, a registration, a fine, an enforcement outcome,
+// etc.). General term lists, not tied to any one company or regime — each
+// category also supplies a human-readable label used when a claim needs to
+// be neutralized (see neutralizeUnsupportedClaims below).
+const DESIGNATION_CLAIM_CATEGORIES: { pattern: RegExp; label: string }[] = [
+  { pattern: /\bgatekeepers?\b/i, label: "gatekeeper designation" },
+  { pattern: /\bVLOPs?\b|\bVLOSEs?\b/i, label: "VLOP/VLOSE designation" },
+  { pattern: /\bdesignat(ed|ion)\b/i, label: "regulatory designation" },
+  { pattern: /\blicen[sc]e[ds]?\b/i, label: "licence/authorisation" },
+  { pattern: /\bauthoriz(ed|ation)\b/i, label: "authorisation" },
+  { pattern: /\bregist(ered|ration)\b/i, label: "registration status" },
+  { pattern: /\bregulated entit(y|ies)\b/i, label: "regulated-entity status" },
+  { pattern: /\bfined\b|\bfines?\b|\bpenalt(y|ies)\b/i, label: "fine/penalty" },
+  {
+    pattern: /\bfound (guilty|liable)\b|\bconvicted\b|\bordered to pay\b/i,
+    label: "enforcement outcome",
+  },
+];
+const DESIGNATION_CLAIM_REGEX = new RegExp(
+  DESIGNATION_CLAIM_CATEGORIES.map((c) => c.pattern.source).join("|"),
+  "i",
+);
 const HEDGE_TERMS =
   /\b(potentially|possibly|may|might|could|likely|appears? to|is believed|reportedly|is thought)\b/i;
 
 function containsUnhedgedDesignationClaim(text: string): boolean {
-  return DESIGNATION_CLAIM_TERMS.test(text) && !HEDGE_TERMS.test(text);
+  return DESIGNATION_CLAIM_REGEX.test(text) && !HEDGE_TERMS.test(text);
+}
+
+function designationClaimLabel(text: string): string {
+  const match = DESIGNATION_CLAIM_CATEGORIES.find((c) => c.pattern.test(text));
+  return match?.label ?? "specific regulatory status";
 }
 
 // Backstop for the same guardrail the prompt already asks for: testing
 // showed the model can correctly set applicabilityEvidence to something
 // other than DIRECTLY_EVIDENCED while still writing the specific
-// designation/status claim as unhedged fact in summary/whyItMatters. Rather
-// than try to rewrite the model's sentence (real risk of mangling it), add
-// an honest caveat in front — it's never wrong to say our evidence for a
-// specific claim is inferred rather than confirmed, whether or not the
-// claim happens to be true.
-const EVIDENCE_CAVEAT_PREFIX = "Evidence caveat: ";
-
-// Applied independently to summary and whyItMatters — either or both can
-// carry the unhedged claim, and the UI renders both directly to users, so
-// both need the same guardrail rather than just the one field.
-function withEvidenceCaveatIfNeeded(
+// designation/status claim as unhedged fact in summary/whyItMatters — and
+// that merely prepending a caveat before the unhedged claim is not enough
+// (the claim is still asserted right after). This rewrites the offending
+// sentence(s) in place instead: split into sentences, replace the first
+// one that asserts an unhedged designation/status claim with a generic
+// hedge sentence naming the regime/area but not the specific status as
+// fact, and drop any further offending sentences in the same field (to
+// avoid repeating the hedge). Sentences that don't assert such a claim are
+// left exactly as the model wrote them.
+function neutralizeUnsupportedClaims(
   text: string,
   applicabilityEvidence: (typeof APPLICABILITY_EVIDENCE_LEVELS)[number],
+  context: { regimeLabel: string; regulatoryArea: string },
 ): string {
   if (applicabilityEvidence === "DIRECTLY_EVIDENCED") return text;
   if (!containsUnhedgedDesignationClaim(text)) return text;
-  return (
-    `${EVIDENCE_CAVEAT_PREFIX}the retrieved sources don't explicitly confirm this ` +
-    `specific designation/status for this company — treat it as a plausible inference, ` +
-    `not a confirmed fact. ${text}`
-  );
+
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  let alreadyRewrote = false;
+  const rewritten = sentences.flatMap((sentence) => {
+    if (!containsUnhedgedDesignationClaim(sentence)) return [sentence];
+    if (alreadyRewrote) return [];
+    alreadyRewrote = true;
+    const label = designationClaimLabel(sentence);
+    return [
+      `${context.regimeLabel} may be relevant to this company's ` +
+        `${context.regulatoryArea.toLowerCase()} activities, but the retrieved authoritative ` +
+        `sources do not confirm a specific ${label} for this company or service.`,
+    ];
+  });
+  return rewritten.join(" ");
 }
 
 // Sorts a finding's sources so an official regulator/government domain
-// reads as the primary evidence and everything else as supporting —
-// generic domain-pattern matching, not a per-company/per-regulation list.
+// reads as the primary evidence, an unrecognized domain (which may well be
+// a legitimate regulator not matching any hint below — e.g. dataprotection.ie
+// — stays neutral rather than penalized) sits in the middle, and a known
+// generic/low-authority source (Wikipedia, a blog, a compliance-vendor
+// site) is pushed to the back. Deliberately asymmetric: we only ever
+// *demote* a narrow, recognizable low-quality pattern, never guess at
+// promoting an unfamiliar domain — guessing "promote" risks wrongly
+// deprioritizing a real regulator whose domain just doesn't match a hint.
 const AUTHORITATIVE_URL_HINTS = [
   ".gov",
   ".europa.eu",
@@ -616,9 +677,69 @@ const AUTHORITATIVE_URL_HINTS = [
   "legislation",
 ];
 
+// Narrow, hostname-scoped patterns for sources that are never the primary
+// evidence for a regulatory claim even when they accurately describe one —
+// an encyclopedia, a blog, or a compliance-vendor/consultancy site. Not
+// tied to any one company or regulation.
+const GENERIC_LOW_QUALITY_HOSTNAMES = ["wikipedia.org", "medium.com", "investopedia.com"];
+const GENERIC_LOW_QUALITY_HOSTNAME_SUBSTRINGS = ["blog", "vendor", "consultancy"];
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+function isGenericLowQualitySource(url: string): boolean {
+  const host = hostnameOf(url);
+  return (
+    GENERIC_LOW_QUALITY_HOSTNAMES.some((h) => host === h || host.endsWith(`.${h}`)) ||
+    GENERIC_LOW_QUALITY_HOSTNAME_SUBSTRINGS.some((s) => host.includes(s))
+  );
+}
+
 function sourceAuthorityRank(url: string): number {
   const lower = url.toLowerCase();
-  return AUTHORITATIVE_URL_HINTS.some((hint) => lower.includes(hint)) ? 0 : 1;
+  if (AUTHORITATIVE_URL_HINTS.some((hint) => lower.includes(hint))) return 0;
+  if (isGenericLowQualitySource(url)) return 2;
+  return 1;
+}
+
+// A starter set of common alternate names/abbreviations for each supported
+// jurisdiction, used only to decide whether a finding's free-text
+// jurisdiction field refers to the one the user explicitly requested — not
+// a general geography database, just enough to catch "EU"/"UK"/"US" style
+// shorthand the model might use instead of the full JURISDICTIONS name.
+const JURISDICTION_ALIASES: Record<string, string[]> = {
+  Singapore: ["singapore"],
+  "European Union": ["european union", "eu", "eea", "european economic area"],
+  "United Kingdom": ["united kingdom", "uk", "britain", "great britain"],
+  "United States": ["united states", "u.s.", "us", "usa", "america"],
+  Australia: ["australia"],
+  India: ["india"],
+  China: ["china", "prc", "people's republic of china"],
+};
+
+// Jurisdiction labels that mean "applies everywhere" rather than one
+// specific place — these always pass a jurisdiction scope, since a truly
+// global/international standard does apply within the requested
+// jurisdiction too, not instead of it. Kept intentionally short and
+// generic (not a per-regime list).
+const UNIVERSAL_JURISDICTION_LABELS = ["global", "international", "worldwide"];
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Word-boundary matching (not raw substring) so a short alias like "us"
+// doesn't false-match inside an unrelated word (e.g. "Mauritius").
+function jurisdictionMatchesRequested(findingJurisdiction: string, requested: string): boolean {
+  const lower = findingJurisdiction.trim().toLowerCase();
+  if (UNIVERSAL_JURISDICTION_LABELS.includes(lower)) return true;
+  const aliases = JURISDICTION_ALIASES[requested] ?? [requested.toLowerCase()];
+  return aliases.some((alias) => new RegExp(`\\b${escapeRegExp(alias)}\\b`, "i").test(lower));
 }
 
 // Models sometimes return a confidence-like field as a 0-1 fraction despite

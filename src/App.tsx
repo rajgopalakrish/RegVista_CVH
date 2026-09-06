@@ -58,6 +58,12 @@ function CompanyPicker({
       });
       setName("");
       setIndustry("");
+      // Reset the selector too, not just name/industry — leaving a previous
+      // company's jurisdiction selected here reads as if it still applies
+      // to whichever company is now being viewed, even though the actual
+      // displayed result always uses that run's own requestedJurisdiction
+      // (see the "Jurisdiction:" line below), never this form's state.
+      setJurisdiction(AUTO_DETECT);
     } finally {
       setSubmitting(false);
     }
