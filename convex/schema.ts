@@ -165,5 +165,55 @@ export default defineSchema({
     implementationDate: v.optional(v.string()),
     consultationDeadline: v.optional(v.string()),
     reportingDeadline: v.optional(v.string()),
+    // Best-effort link to a stable ledger regime (below), set when this
+    // finding cleared the ledger's credibility bar. Optional/backward
+    // compatible: regimeKey (above) remains the free-text display link
+    // for everything else.
+    regimeId: v.optional(v.id("regulatoryRegimes")),
   }).index("by_companyId", ["companyId"]),
+
+  // The stable "regime ledger": relatively fixed named regulatory
+  // instruments the engine has confidently identified at least once,
+  // independent of any single research run. This exists to fix a
+  // confirmed problem, not to become a general regulation database — a
+  // real company+jurisdiction re-run was found to lose a genuinely-
+  // applicable regime simply because that run's bounded Firecrawl query
+  // budget didn't happen to touch it again (see docs/decisions.md). Only
+  // regimes clearing the same credibility bar findings already require
+  // (specific named instrument, decent relevance, non-secondary source,
+  // not merely "possible/uncertain" — see LEDGER_MIN_RELEVANCE etc. in
+  // research.ts) ever get written here, and only ever by the normal
+  // research pipeline — never manually curated.
+  regulatoryRegimes: defineTable({
+    jurisdiction: v.string(),
+    regimeKey: v.string(), // display name, as most recently confirmed
+    canonicalIdentity: v.string(), // normalized matching key — see research.ts
+    regulator: v.string(),
+    regulatoryArea: v.string(),
+    canonicalSourceUrl: v.optional(v.string()),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  }).index("by_jurisdiction_identity", ["jurisdiction", "canonicalIdentity"]),
+
+  // The stable claim "this company is exposed to this ledger regime" —
+  // separate from any one run's `findings`, so a regime a run doesn't
+  // happen to re-query still shows as part of the company's landscape.
+  // `status` defaults to "active" and is never inferred from a run simply
+  // not mentioning the regime again — only real contrary evidence would
+  // ever move it to "stale"/"superseded" (not implemented yet; no code
+  // path sets those today, they exist so a future pass can without a
+  // schema change).
+  companyRegimeExposure: defineTable({
+    companyId: v.id("companies"),
+    regimeId: v.id("regulatoryRegimes"),
+    applicabilityLevel: applicabilityLevelValidator,
+    applicabilityEvidence: applicabilityEvidenceValidator,
+    status: v.union(v.literal("active"), v.literal("stale"), v.literal("superseded")),
+    firstIdentifiedAt: v.number(),
+    lastConfirmedAt: v.number(),
+    lastResearchRunId: v.id("researchRuns"),
+    lastFindingId: v.id("findings"),
+  })
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_regimeId", ["companyId", "regimeId"]),
 });

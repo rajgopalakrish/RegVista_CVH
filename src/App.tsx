@@ -180,6 +180,13 @@ type Finding = Doc<"findings">;
 // An item without itemType is pre-ontology test data (from before this
 // field set existed) — shown in "Recent Developments" as a fallback so
 // nothing silently disappears, rather than assuming a bucket for it.
+//
+// Only used now to keep a current-run REGULATION_REGIME item that didn't
+// clear the regime ledger's (higher) credibility bar — e.g. a secondary
+// source or POSSIBLE_UNCERTAIN evidence — out of "Recent Regulatory
+// Developments", where it would otherwise read as an enforcement/news item.
+// The "Active Regulatory Regimes" section itself is now driven by the
+// ledger's stable activeRegimeExposures, not this function.
 function isEstablishedRegime(f: Finding) {
   return (
     f.itemType === "REGULATION_REGIME" &&
@@ -359,18 +366,34 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
     );
   }
 
-  const { latestRun, findings, profile } = landscape;
+  const { latestRun, findings, profile, activeRegimeExposures } = landscape;
   // Only the latest run's findings — a watchlist, not an ever-growing dump
   // of every research run this company has ever had.
   const currentFindings = latestRun
     ? findings.filter((f) => f.researchRunId === latestRun._id)
     : [];
-  const activeRegimes = currentFindings.filter(isEstablishedRegime);
+
+  // The regime ledger's stable view: regimes this company is confirmed
+  // exposed to, independent of whether this specific run's bounded query
+  // budget happened to re-surface them. Falls back to nothing for
+  // pre-ledger findings (regimeId/ledger rows only exist going forward).
+  const activeRegimeFindings = activeRegimeExposures
+    .map((e) => findings.find((f) => f._id === e.exposure.lastFindingId))
+    .filter((f): f is Finding => f !== undefined);
+  const activeRegimeFindingIds = new Set(activeRegimeFindings.map((f) => f._id));
+
   const upcomingOrChanging = currentFindings.filter(isUpcomingOrChanging);
   const recentDevelopments = currentFindings.filter(
-    (f) => !activeRegimes.includes(f) && !upcomingOrChanging.includes(f),
+    (f) =>
+      !activeRegimeFindingIds.has(f._id) &&
+      !upcomingOrChanging.includes(f) &&
+      !isEstablishedRegime(f),
   );
-  const jurisdictionCount = new Set(currentFindings.map((f) => f.jurisdiction)).size;
+  const jurisdictionCount = new Set([
+    ...currentFindings.map((f) => f.jurisdiction),
+    ...activeRegimeFindings.map((f) => f.jurisdiction),
+  ]).size;
+  const hasLandscapeContent = currentFindings.length > 0 || activeRegimeFindings.length > 0;
 
   function handleSelectFinding(id: Id<"findings">) {
     setHighlightedId(id);
@@ -418,20 +441,25 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
 
       {profile && <CompanyProfileCard profile={profile} />}
 
-      {currentFindings.length > 0 && (
+      {hasLandscapeContent && (
         <ExecutiveSummary
-          activeCount={activeRegimes.length}
+          activeCount={activeRegimeFindings.length}
           upcomingCount={upcomingOrChanging.length}
           developmentsCount={recentDevelopments.length}
           jurisdictionCount={jurisdictionCount}
         />
       )}
 
-      {currentFindings.length > 0 && (
-        <RegulatoryExposureMap companyName={company.name} findings={currentFindings} onSelectFinding={handleSelectFinding} />
+      {hasLandscapeContent && (
+        <RegulatoryExposureMap
+          companyName={company.name}
+          regimeFindings={activeRegimeFindings}
+          allFindings={currentFindings}
+          onSelectFinding={handleSelectFinding}
+        />
       )}
 
-      {currentFindings.length === 0 && latestRun?.status === "done" && (
+      {!hasLandscapeContent && latestRun?.status === "done" && (
         <div className="empty-state">
           <p>No regulatory findings for this company yet. Try broadening the jurisdiction or re-running research.</p>
         </div>
@@ -439,8 +467,8 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
 
       <FindingGroup
         title="Active Regulatory Regimes"
-        subtitle="The most important established regulations/frameworks relevant to this company."
-        items={activeRegimes}
+        subtitle="Established regulations/frameworks confirmed relevant to this company, including ones this run didn't re-query."
+        items={activeRegimeFindings}
         accent="active"
         highlightedId={highlightedId}
       />
@@ -568,20 +596,23 @@ function CompanyProfileCard({ profile }: { profile: Doc<"companyProfiles"> }) {
 
 // Company -> Regulatory Exposure Areas -> Regulatory Regimes, with
 // jurisdiction/regulator as attributes on each regime and an
-// Active/Upcoming/Enforcement status color — built entirely from this
-// run's own REGULATION_REGIME findings (grouped by their regulatoryArea),
-// no separate graph data or mock content. Skips rendering rather than
-// forcing a map when there's nothing regime-shaped to show.
+// Active/Upcoming/Enforcement status color. The lanes/chips are built from
+// the regime ledger's stable exposures (regimeFindings) rather than only
+// this run's own findings, so a regime a run doesn't happen to re-query
+// still appears here; allFindings (this run's findings) is used only to
+// cross-reference which regimes have an active enforcement development.
+// Skips rendering rather than forcing a map when there's nothing to show.
 function RegulatoryExposureMap({
   companyName,
-  findings,
+  regimeFindings,
+  allFindings,
   onSelectFinding,
 }: {
   companyName: string;
-  findings: Finding[];
+  regimeFindings: Finding[];
+  allFindings: Finding[];
   onSelectFinding: (id: Id<"findings">) => void;
 }) {
-  const regimeFindings = findings.filter((f) => f.itemType === "REGULATION_REGIME");
   if (regimeFindings.length === 0) return null;
 
   const areaOrder: string[] = [];
@@ -599,7 +630,7 @@ function RegulatoryExposureMap({
   // run (any itemType) sharing its regimeKey is itself an enforcement
   // development — connecting two already-independent findings visually.
   const enforcedRegimeKeys = new Set(
-    findings
+    allFindings
       .filter((f) => f.status === "ENFORCEMENT_DEVELOPMENT" && f.regimeKey)
       .map((f) => f.regimeKey as string),
   );

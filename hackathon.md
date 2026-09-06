@@ -416,3 +416,50 @@ hygiene, cross-sector testing, and a final visual pass):
 Verified: frontend typecheck and build clean, live site (200 on page +
 both assets) now serves this build via the already-fixed `npm run
 deploy`, and `git diff --stat` confirms the engine is untouched.
+
+### 2026-09-06 - (Regulatory Regime Ledger)
+A focused product-quality diagnostic (Google→Singapore ×2, DBS→Singapore
+×2, no code touched) confirmed a real completeness/stability defect:
+`buildSearchQueries` only ever queried the top 2 of up to 6 profiled
+exposure areas, and Stage 1's area ordering isn't deterministic — so a
+genuinely-applicable named regime (Singapore's Online Safety Act for
+Google; PDPA for DBS, in *both* runs) could silently vanish between runs
+purely because retrieval didn't happen to look for it that time.
+Architecture verdict: a ledger is warranted, not just a bigger query
+budget — added the smallest viable one.
+
+Two new tables, `regulatoryRegimes` (global catalog) and
+`companyRegimeExposure` (stable per-company claim), plus an optional
+`regimeId` link on `findings`. Only findings clearing the existing
+credibility bar (specific regime, decent relevance, non-secondary source,
+not "possible/uncertain") ever enter the ledger — no new ontology or
+prompt changes. Retrieval now spends its (still-bounded, ≤8-query) budget
+on two things: refreshing already-known regimes (≤3, anchored to each
+regime's own jurisdiction) and discovering new ones across whichever
+exposure areas aren't already covered (≤4), plus the unchanged enforcement
+query — replacing the old "only ever the top 2" limit. UI changes were
+minimal: "Active Regulatory Regimes" and the Exposure Map now read from
+the ledger's stable state instead of only the latest run's findings.
+
+Found and fixed two real bugs in the identity-matching logic during live
+verification (not shipped as known issues, since they defeated the
+feature's whole purpose): a bare acronym ("PDPA") and its spelled-out form
+weren't deduping to the same ledger row until an initials-derivation step
+was added, and once added, a trailing year ("...Act 2022") was corrupting
+that derivation until purely-numeric tokens were excluded.
+
+Re-verified live, post-fix: Google→Singapore ×2 kept all three ledger
+regimes correctly deduped across runs and kept a fourth
+(App-Distribution-Services online-safety code) active in run 2 even though
+run 2 never re-queried it — the exact "known regimes don't disappear"
+outcome this pass targets. DBS→Singapore ×2 (the harder stress test) grew
+from 4 to 8 active regimes, adding full AML/CFT coverage
+(Terrorism-Financing Act, Corruption/Drug-Trafficking Act, MAS AML/CFT
+Notices, Resolution Regulations) while PDPA persisted from run 1 without
+being re-queried in run 2. A fresh company (Grab Holdings) cost exactly 5
+Firecrawl queries — same order of magnitude as the old fixed-5 baseline.
+
+Verified: both `tsc` checks (frontend + Convex) clean, `npm run build`
+succeeds, backend + static frontend both deployed (new indexes created
+cleanly, additive-only schema change, no backfill migration). Full
+before/after data written up in `docs/decisions.md`.

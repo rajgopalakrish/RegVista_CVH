@@ -117,12 +117,24 @@ async function inferCompanyProfile(
 // footprint for both a primary and secondary jurisdiction query.
 // ---------------------------------------------------------------------------
 
+// Bounded so a re-run's cost stays commercially sensible regardless of how
+// many regimes a company has accumulated in the ledger or how many exposure
+// areas Stage 1 profiles — this replaces the old fixed "exposures[0]/[1]
+// only" limit (the confirmed cause of regimes disappearing between runs)
+// without letting the query count grow unboundedly as the ledger grows.
+const REFRESH_QUERY_BUDGET = 3;
+const DISCOVERY_AREA_BUDGET = 4;
+
+type ActiveRegimeRow = {
+  regime: { jurisdiction: string; regimeKey: string; regulatoryArea: string };
+};
+
 function buildSearchQueries(
   companyName: string,
   profile: Profile,
-  requestedJurisdiction?: string,
+  requestedJurisdiction: string | undefined,
+  activeRegimes: ActiveRegimeRow[],
 ): string[] {
-  const exposures = profile.regulatoryExposureAreas.slice(0, 3);
   const footprintJurisdictions = profile.geographicFootprint.filter(
     (j) => j.toLowerCase() !== "global",
   );
@@ -133,54 +145,50 @@ function buildSearchQueries(
 
   const queries: string[] = [];
 
-  // Regulatory regimes/laws for the top exposure area, anchored to the
-  // company's primary jurisdiction where known.
-  queries.push(
-    [companyName, primaryJurisdiction, exposures[0], "regulation law"]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  // Official regulator guidance, consultations, and proposed rules.
-  if (exposures[0]) {
+  // 1. Refresh: one query per already-established ledger regime (most
+  // recently confirmed first, capped), anchored to that regime's own
+  // stored jurisdiction rather than this run's profile — a known regime
+  // gets checked for updates every run regardless of whether this run's
+  // Stage 1 profile happens to re-surface its exposure area.
+  const refreshRegimes = activeRegimes.slice(0, REFRESH_QUERY_BUDGET);
+  for (const { regime } of refreshRegimes) {
     queries.push(
-      [companyName, primaryJurisdiction, exposures[0], 'regulator guidance OR consultation OR "proposed rule"']
+      [companyName, regime.jurisdiction, regime.regimeKey, "update OR amendment OR guidance OR enforcement"]
         .filter(Boolean)
         .join(" "),
     );
   }
 
-  // Enforcement/investigation. Kept exposure-unscoped (not narrowed to one
-  // exposure area) since enforcement search benefits from staying broad —
-  // but still anchored to the requested/primary jurisdiction so an
-  // explicit jurisdiction selection isn't diluted by unrelated-country
-  // enforcement noise.
+  // 2. Discovery: cover exposure areas not already represented by a
+  // refreshed regime, so new regimes can still be found without spending
+  // budget re-querying ground the refresh queries above already cover.
+  // Alternates primary/secondary footprint jurisdiction (when auto-
+  // detecting) to preserve the previous multi-jurisdiction discovery
+  // behavior rather than narrowing it.
+  const coveredAreas = new Set(
+    refreshRegimes.map(({ regime }) => regime.regulatoryArea.trim().toLowerCase()),
+  );
+  const discoveryAreas = profile.regulatoryExposureAreas
+    .filter((area) => !coveredAreas.has(area.trim().toLowerCase()))
+    .slice(0, DISCOVERY_AREA_BUDGET);
+  discoveryAreas.forEach((area, i) => {
+    const jurisdictionForQuery =
+      secondaryJurisdiction && i % 2 === 1 ? secondaryJurisdiction : primaryJurisdiction;
+    queries.push(
+      [companyName, jurisdictionForQuery, area, 'regulation law OR regulator guidance OR "effective date"']
+        .filter(Boolean)
+        .join(" "),
+    );
+  });
+
+  // 3. Enforcement/investigation — unchanged: broad, not exposure-scoped,
+  // anchored to the requested/primary jurisdiction so an explicit
+  // jurisdiction selection isn't diluted by unrelated-country noise.
   queries.push(
     [companyName, primaryJurisdiction, "regulatory investigation enforcement fine penalty"]
       .filter(Boolean)
       .join(" "),
   );
-
-  // A second exposure area, optionally anchored to a secondary jurisdiction
-  // (e.g. a US company's EU exposure) when auto-detecting; anchored to the
-  // same requested jurisdiction when one was explicitly selected, to widen
-  // exposure-area coverage without widening jurisdiction.
-  if (exposures[1]) {
-    queries.push(
-      [companyName, secondaryJurisdiction ?? primaryJurisdiction, exposures[1], "regulation"]
-        .filter(Boolean)
-        .join(" "),
-    );
-  }
-
-  // Implementation/effective-date material for the top exposure area.
-  if (exposures[0]) {
-    queries.push(
-      [companyName, primaryJurisdiction, exposures[0], '"effective date" OR implementation OR "compliance deadline"']
-        .filter(Boolean)
-        .join(" "),
-    );
-  }
 
   return queries;
 }
@@ -313,11 +321,17 @@ export const run = internalAction({
         ...profile,
       });
 
-      // --- Stage 2: exposure-driven retrieval ---
+      // --- Stage 2: exposure-driven retrieval, refreshed by the ledger ---
+      const activeRegimes = await ctx.runQuery(api.research.listActiveRegimeExposures, {
+        companyId,
+        jurisdiction,
+      });
       const firecrawl = new Firecrawl({ apiKey: requireEnv("FIRECRAWL_API_KEY") });
-      const searchQueries = buildSearchQueries(company.name, profile, jurisdiction);
+      const searchQueries = buildSearchQueries(company.name, profile, jurisdiction, activeRegimes);
       console.log(
-        `[research:${runId}] jurisdiction=${jurisdiction ?? "auto-detect"} search queries`,
+        `[research:${runId}] jurisdiction=${jurisdiction ?? "auto-detect"} ` +
+          `refreshing ${Math.min(activeRegimes.length, REFRESH_QUERY_BUDGET)} known regime(s), ` +
+          `search queries`,
         searchQueries,
       );
 
@@ -349,8 +363,10 @@ export const run = internalAction({
         // they can ever be cited as evidence — never present a source a
         // reader couldn't make sense of at a glance.
         .filter((doc) => isUsableSource(doc.metadata?.title, doc.metadata?.url))
-        // Bound the prompt: five queries can return up to 20 raw results.
-        .slice(0, 14);
+        // Bound the prompt: the ledger-aware query set can run up to ~8
+        // queries (vs. the previous fixed 5), so the cap is raised modestly
+        // to match rather than left to silently truncate the larger set.
+        .slice(0, 18);
       console.log(
         `[research:${runId}] retrieval: ${rawCount} raw, ${documents.length} scrapeable+deduped+usable sources`,
       );

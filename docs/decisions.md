@@ -1008,6 +1008,151 @@ succeeded, static-hosting frontend deploy succeeded (using the
 `NODE_OPTIONS=--use-env-proxy`-fixed `npm run deploy` script from the
 prior pass), live site returns 200 on the page and both built assets.
 
+## 2026-09-06 — Regulatory Regime Ledger: fixing regime disappearance/incompleteness across runs
+
+**Diagnostic first.** Before any code changed, ran four live research runs
+(Google→Singapore ×2, DBS→Singapore ×2) and compared them. Root cause,
+confirmed precisely: `buildSearchQueries` only ever built dedicated
+Firecrawl queries for `profile.regulatoryExposureAreas[0]` and `[1]` (the
+top two of up to six Stage-1-profiled areas). Stage 1's exposure-area
+ordering is not deterministic run-to-run, so which two areas got queried
+varied, and a regime tied to an area that didn't make the top two that run
+simply vanished from the results — not because it stopped applying, but
+because retrieval never looked for it. Concretely: Google's Online Safety
+Act moved from exposure-area index 1 to index 3 between the two runs and
+disappeared exactly then; DBS's PDPA was absent from *both* runs because
+"data protection & privacy" never once landed in the top two of DBS's
+profiled areas. Conclusion: the engine's single-run, no-memory retrieval
+architecture cannot reliably surface a company's full regulatory landscape
+even for a single fixed jurisdiction — a persistence layer (the "ledger")
+is warranted, not just a query-budget tweak, because the underlying problem
+is that nothing about a previously-confirmed regime is remembered between
+runs at all.
+
+**What was built — the smallest version that fixes this specific problem.**
+Two new tables (`convex/schema.ts`): `regulatoryRegimes` (a global,
+company-agnostic catalog of named regimes the engine has confidently seen
+at least once, keyed by `(jurisdiction, canonicalIdentity)`) and
+`companyRegimeExposure` (the stable per-company claim "this company is
+exposed to this regime", independent of any one run). `findings` gained one
+optional `regimeId` back-link; everything else about findings is
+unchanged — they remain the full per-run evidence trail.
+
+Only findings that already clear a credibility bar reusing existing fields
+ever create or confirm a ledger entry (`convex/research.ts`,
+`isLedgerEligible`): `itemType === "REGULATION_REGIME"`, a non-empty
+`regimeKey`, `relevanceScore >= 50`, not `TIER_3_SECONDARY_REPORTING`, and
+not `POSSIBLE_UNCERTAIN`. No new classification field, no ontology change,
+no prompt change — the ledger is purely a downstream persistence decision
+over what Stage 3 already produces.
+
+**Identity normalization (`canonicalRegimeIdentity`).** The same regime
+gets named differently across runs and forms — "PDPA", "Singapore Personal
+Data Protection Act", "Personal Data Protection Act 2012 (PDPA)" all
+refer to one regime. Dedup order: (1) a parenthesized acronym at the end of
+the name; (2) the whole regimeKey being a bare acronym already ("PDPA",
+"GDPR"); (3) initials derived from the significant words of a spelled-out
+name ("Personal Data Protection Act" → "pdpa"), used only at 4+ characters
+to avoid collapsing unrelated short-named acts (e.g. "Banking Act" /
+"Broadcasting Act" both → 2 letters, correctly *not* merged); (4) lowercased,
+year-stripped free text as the final fallback. General text normalization
+throughout, not a curated regulation table — the same function runs
+identically for any company/jurisdiction/regime name.
+
+Two bugs surfaced and were fixed during live verification (not left as
+known issues, since they directly undermined the feature's one job):
+- A bare acronym ("PDPA") and its full spelled-out form ("Singapore
+  Personal Data Protection Act") were producing two different ledger rows
+  for the same regime — the initials step (3) above didn't exist yet.
+  Fixed by adding it.
+- Once added, a trailing year in a spelled-out name ("...Act 2022") was
+  being treated as an extra "initial" (the leading digit), producing e.g.
+  `"osa2"` instead of matching the year-free form's `"online safety
+  miscellaneous amendments act"`. Fixed by excluding purely-numeric tokens
+  from the initials derivation.
+
+Residual, accepted limitation (not chased further — this is LLM phrasing
+variance, not a normalizer bug): a statute citation appended to a name
+("Competition Act (Cap 50B)" vs. "Competition Act 2004") can still produce
+two ledger rows for what's plausibly the same Act, since the parenthetical
+here isn't acronym-shaped and the words-in-common initials are only 2
+characters (below the 4-char merge threshold, correctly protecting against
+worse collisions elsewhere). Both rows still correctly show as active; this
+is an over-splitting risk, never an under-splitting (false-merge) one.
+
+**Retrieval: refresh + discovery, bounded (`researchActions.ts`).**
+`buildSearchQueries` now takes the company's current active ledger
+exposures (fetched via a new `research.listActiveRegimeExposures` query,
+called once per run before Stage 2) and builds:
+1. **Refresh** — one query per already-established regime (≤3, most
+   recently confirmed first), anchored to *that regime's own stored
+   jurisdiction*, not the current run's profile — so a known regime is
+   checked for updates regardless of whether this run's Stage 1 profiling
+   happens to re-surface its exposure area.
+2. **Discovery** — one query per profiled exposure area not already covered
+   by a refreshed regime (≤4), alternating primary/secondary footprint
+   jurisdiction on auto-detect runs exactly as the old top-2 logic did, so
+   auto-detect's existing multi-jurisdiction behavior isn't narrowed.
+3. **Enforcement** — unchanged, one broad query anchored to the primary
+   jurisdiction.
+
+Total ≤8 queries vs. the old fixed 5 — bounded regardless of how large a
+company's ledger grows, and *equal or cheaper* than before for a brand-new
+company (0 refresh + ≤4 discovery + 1 enforcement ≤ 5, vs. the old code's
+fixed 5). The retrieved-document cap was raised from 14 to 18 to match the
+modestly larger query set. Known regimes persist unless a future pass adds
+real contrary-evidence detection to move `companyRegimeExposure.status`
+off `"active"` — nothing today infers staleness from a regime simply not
+being re-queried, matching the ask ("known regimes don't disappear... while
+new regimes can still be discovered").
+
+**UI (`src/App.tsx`), minimal.** "Active Regulatory Regimes" and the
+Regulatory Exposure Map now render from the ledger's
+`activeRegimeExposures` (joined back to their `lastFindingId` finding for
+display) instead of only the current run's findings — this is the one
+place the ask explicitly named ("use stable company-regime relationships
+rather than only the latest findings"). The Exposure Map's enforcement-ring
+cross-reference logic still scans the current run's findings (renamed
+`allFindings` prop), since a *new* enforcement development belongs to this
+run's evidence, not the ledger. "Recent Regulatory Developments" still
+excludes a current-run regime item that didn't clear the ledger bar from
+being mislabeled as a generic development, reusing the existing
+status-based check for that narrow purpose only. No CSS changes; no new
+components.
+
+**Live verification (post both bug fixes, on fresh company records).**
+Google→Singapore ×2: run 2 kept PDPA, the Online Safety Act, and the
+Competition Act as active — all three correctly deduped to one ledger row
+apiece across the two runs (verified via each row's stored
+`canonicalIdentity`, not just its display name) — and additionally kept
+"Code of Practice for Online Safety – App Distribution Services" active in
+run 2's landscape even though run 2's own queries never mentioned it again
+(the exact "known regimes don't disappear" behavior this pass exists to
+produce). DBS→Singapore ×2 — the harder completeness stress test — went
+from 4 active regimes after run 1 (Banking Act, FSMA, Payment Services Act,
+PDPA) to 8 after run 2, adding full AML/CFT coverage (Terrorism
+(Suppression of Financing) Act, Corruption/Drug Trafficking/Serious Crimes
+Act, MAS AML/CFT Notices and Guidelines, Financial Services and Markets
+(Resolution of Financial Institutions) Regulations) all
+`DIRECTLY_EVIDENCED`, while PDPA — not re-queried by run 2 — persisted from
+run 1 rather than disappearing as it did in the pre-ledger diagnostic
+runs. A fresh company (Grab Holdings→Singapore, never seen before) cost
+exactly 5 Firecrawl queries end to end, same order of magnitude as the old
+fixed-5 baseline, confirming the query budget stays commercially sensible
+for a company with no ledger history yet.
+
+Verified: `npx tsc -b --noEmit` and `npx tsc -p convex/tsconfig.json
+--noEmit` both clean, `npm run build` succeeds, Convex backend + static
+frontend both deployed successfully (new indexes created cleanly, no data
+loss — this is a forward-only, purely additive schema change with no
+backfill migration, exactly as scoped). Browser-visual verification of the
+UI changes wasn't possible in this sandbox (Chromium couldn't complete a
+TLS handshake through the sandbox's HTTP-only-verified proxy, unrelated to
+the app); verification instead relied on `tsc` catching every prop-type
+mismatch across the `RegulatoryExposureMap`/`FindingGroup` signature
+changes, plus direct inspection of the live Convex data the UI renders
+from, which is what actually exercises this feature's cross-run logic.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
