@@ -528,6 +528,7 @@ export const run = internalAction({
       let downgradedTopicCount = 0;
       let downgradedEvidenceCount = 0;
       let statusCorrectedCount = 0;
+      let downgradedSourceQualityCount = 0;
       const findings = candidatesInScope
         .map((f) => {
           // Backstop for the same rule already stated in the itemType/
@@ -542,13 +543,36 @@ export const run = internalAction({
             f.itemType === "REGULATION_REGIME" && !f.regimeKey ? "NEWS" : f.itemType;
           if (itemType !== f.itemType) downgradedTopicCount++;
 
+          // Resolve the model's cited URLs against the sources actually put
+          // in the prompt FIRST, so every backstop below judges the same
+          // list that gets persisted and displayed. The model can cite a URL
+          // that isn't in the pool (mangled or invented), and that URL is
+          // dropped here — checking the raw f.sourceUrls instead would let a
+          // dropped regulator URL vouch for a finding whose surviving
+          // citations are all secondary.
+          //
+          // Where a finding cites more than one source, put the most
+          // authoritative one first and any generic/low-quality source
+          // (Wikipedia, a compliance-vendor blog, etc.) last, so it reads
+          // as primary evidence plus supporting context rather than
+          // equivalent citations.
+          const sources = f.sourceUrls
+            .map((url) => urlToSource.get(url))
+            .filter((s): s is { url: string; title: string } => Boolean(s))
+            .map((s) => ({ ...s, retrievedAt }))
+            .sort(
+              (a, b) =>
+                sourceAuthorityRank(a.url, company.name) - sourceAuthorityRank(b.url, company.name),
+            );
+          const resolvedSourceUrls = sources.map((s) => s.url);
+
           // DIRECTLY_EVIDENCED backstop: secondary-only sources (no
           // regulator/government/authority URL among them) can support
           // STRONGLY_INFERRED, but must not be the sole basis for the
           // model's stronger DIRECTLY_EVIDENCED claim.
           const applicabilityEvidence =
             f.applicabilityEvidence === "DIRECTLY_EVIDENCED" &&
-            !hasAuthoritativeSource(f.sourceUrls)
+            !hasAuthoritativeSource(resolvedSourceUrls)
               ? "STRONGLY_INFERRED"
               : f.applicabilityEvidence;
           if (applicabilityEvidence !== f.applicabilityEvidence) downgradedEvidenceCount++;
@@ -558,6 +582,22 @@ export const run = internalAction({
           // FUTURE_OR_PROPOSED label for the same finding.
           const status = correctFutureStatus(f.status, f.effectiveDate, f.implementationDate);
           if (status !== f.status) statusCorrectedCount++;
+
+          // Source-quality backstop, operationalizing the rule the
+          // sourceQuality field description already states ("only the
+          // regulator's own domain earns TIER_1"): sourceQuality is a
+          // single per-finding label the model assigns over a citation
+          // list that can span tiers, and it was observed labelling a
+          // finding TIER_1 whose only cited sources were vendor blogs.
+          // Since the ledger's admission gate keys off this field, an
+          // unvalidated TIER_1 is the one way a secondary-only finding
+          // can reach the stable ledger.
+          const sourceQuality =
+            f.sourceQuality === "TIER_1_REGULATOR_GOVERNMENT" &&
+            !hasAuthoritativeSource(resolvedSourceUrls)
+              ? "TIER_3_SECONDARY_REPORTING"
+              : f.sourceQuality;
+          if (sourceQuality !== f.sourceQuality) downgradedSourceQualityCount++;
 
           const claimContext = { regimeLabel: f.regimeKey ?? f.title, regulatoryArea: f.regulatoryArea };
           const summary = neutralizeUnsupportedClaims(f.summary, applicabilityEvidence, claimContext);
@@ -581,25 +621,13 @@ export const run = internalAction({
             applicabilityEvidence,
             relevanceScore: f.relevanceScore,
             whyItMatters,
-            sourceQuality: f.sourceQuality,
+            sourceQuality,
             publicationDate: f.publicationDate ?? undefined,
             effectiveDate: f.effectiveDate ?? undefined,
             implementationDate: f.implementationDate ?? undefined,
             consultationDeadline: f.consultationDeadline ?? undefined,
             reportingDeadline: f.reportingDeadline ?? undefined,
-            // Where a finding cites more than one source, put the most
-            // authoritative one first and any generic/low-quality source
-            // (Wikipedia, a compliance-vendor blog, etc.) last, so it reads
-            // as primary evidence plus supporting context rather than
-            // equivalent citations.
-            sources: f.sourceUrls
-              .map((url) => urlToSource.get(url))
-              .filter((s): s is { url: string; title: string } => Boolean(s))
-              .map((s) => ({ ...s, retrievedAt }))
-              .sort(
-                (a, b) =>
-                  sourceAuthorityRank(a.url, company.name) - sourceAuthorityRank(b.url, company.name),
-              ),
+            sources,
           };
         })
         // AGENTS.md §8: never present a finding without evidence.
@@ -622,6 +650,14 @@ export const run = internalAction({
           `[research:${runId}] downgraded ${downgradedEvidenceCount} finding(s) from ` +
             `DIRECTLY_EVIDENCED to STRONGLY_INFERRED: no cited source matched an authoritative ` +
             `regulator/government hint, so secondary sources alone can't establish direct evidence`,
+        );
+      }
+      if (downgradedSourceQualityCount > 0) {
+        console.warn(
+          `[research:${runId}] downgraded ${downgradedSourceQualityCount} finding(s) from ` +
+            `TIER_1_REGULATOR_GOVERNMENT to TIER_3_SECONDARY_REPORTING: no cited source is ` +
+            `published on a regulator/government hostname, so the finding can't claim to rest ` +
+            `on the regulator's own publication`,
         );
       }
       if (statusCorrectedCount > 0) {
@@ -806,9 +842,16 @@ function isCompanyOwnDomain(url: string, companyName: string): boolean {
   return hostnameOf(url).replace(/[^a-z0-9.]/g, "").includes(normalizedName);
 }
 
+// Authoritative matching is against the parsed HOSTNAME, not the whole URL:
+// a full-URL match promotes any page whose path happens to contain a hint
+// word — e.g. a third-party aggregator's ".../p2p-regulatory-framework"
+// slug matches "regulator" and was sorting ahead of the actual ccs.gov.sg
+// page it was reporting on, which then became the regime's stored
+// canonicalSourceUrl. Demotion (rank 2) is unchanged and still considers
+// the full URL, since a vendor's "/blog/"-style path is exactly the signal
+// there.
 function sourceAuthorityRank(url: string, companyName: string): number {
-  const lower = url.toLowerCase();
-  if (AUTHORITATIVE_URL_HINTS.some((hint) => lower.includes(hint))) return 0;
+  if (isAuthoritativeHostname(url)) return 0;
   if (isGenericLowQualitySource(url) || isCompanyOwnDomain(url, companyName)) return 2;
   return 1;
 }
