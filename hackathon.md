@@ -166,3 +166,42 @@ footprint leaking in; DBS Bank + Singapore produced an MAS AML/CFT
 enforcement action naming DBS specifically, the Payment Services Act, and
 Basel III implementation; Stripe + Global/Auto-detect reproduced the
 pre-existing US/EU/UK multi-jurisdiction discovery unchanged.
+
+### 2026-09-06 - 8bac979
+User review of a real ByteDance + European Union run caught the product's
+one remaining trust problem: the DMA finding stated "ByteDance, designated
+as a gatekeeper with respect to TikTok in the EU…" as settled fact, sourced
+only from a private compliance-vendor blog — a specific regulatory
+designation asserted from general LLM knowledge rather than retrieved
+evidence. Added a new `applicabilityEvidence` axis (`schema.ts`:
+`DIRECTLY_EVIDENCED`/`STRONGLY_INFERRED`/`POSSIBLE_UNCERTAIN`), orthogonal
+to `applicabilityLevel` (how central the exposure is, unchanged), with a
+detailed field description and a sharpened classification prompt requiring
+hedged wording ("may be considered…", "is potentially subject to…")
+whenever a specific designation/license/threshold/enforcement claim isn't
+directly evidenced.
+
+Live retest proved prompt-only enforcement insufficient: the model
+correctly self-tagged the DMA finding `STRONGLY_INFERRED`, but its own
+`summary`/`whyItMatters` prose still asserted the gatekeeper designation as
+unhedged fact — the exact reported bug, still present after the schema/
+prompt fix alone. Added a code-side backstop in `researchActions.ts`: a
+general (non-company-specific) regex over designation-claim terms
+("gatekeeper", "VLOP", "VLOSE", "designated as", "licensed", "fined", etc.)
+crossed against common hedge words, which prepends an honest, always-true
+evidence caveat to `summary` and/or `whyItMatters` whenever
+`applicabilityEvidence` isn't `DIRECTLY_EVIDENCED` and the text still reads
+as unhedged fact — rather than risk rewriting the model's sentence.
+Nothing in the fix references ByteDance, TikTok, DMA, DSA, or GDPR by name.
+
+Verified live: re-running ByteDance + European Union after the fix, DSA and
+GDPR findings state applicability in general, non-designation terms and
+came back uncaveated (correctly — they don't assert an unconfirmed
+specific status); the two enforcement findings backed by the Irish DPC's
+real €530M fine (`dataprotection.ie`) came back `DIRECTLY_EVIDENCED` and
+uncaveated. The DMA finding's `summary` and `whyItMatters` now both open
+with the evidence caveat instead of asserting the gatekeeper designation as
+fact. The run still returned 8 useful findings overall (DMA, DSA, 3 GDPR
+items, an EU consumer-protection complaint, the Disinformation Code of
+Practice, and a GDPR procedural-regulation proposal) — the guardrail added
+honesty without deleting uncertain-but-useful results.
