@@ -35,8 +35,16 @@ should this company be watching?*
    and OpenAI (structured extraction/classification, told the requested
    jurisdiction explicitly so it prioritizes findings scoped to it).
 4. RegVista shows the company's regulatory landscape as a hierarchy, not a
-   flat list of findings:
+   flat list of findings, presented as an intelligence brief (Company
+   profile → Regulatory Exposure Map → Active/Upcoming/Recent):
    - **Company profile**: sector, business model, exposure areas, confidence.
+   - **Regulatory Exposure Map**: a lightweight node view — the current
+     run's own named regimes grouped into lanes by their regulatory area,
+     each regime tagged with its jurisdiction/regulator and colored by
+     Active/Upcoming/Enforcement — for "where is this company exposed, to
+     what, and which regulators matter" at a glance. Built entirely from
+     the same findings shown below it (no separate data); skipped
+     entirely when a run has no named-regime findings to show.
    - **Active Regulatory Regimes**: established regulations/frameworks that
      are first-class landscape items (e.g. GDPR, the UK Online Safety Act,
      MAS banking notices) — not enforcement news about them.

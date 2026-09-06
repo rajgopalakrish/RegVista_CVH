@@ -32,6 +32,45 @@ export const start = mutation({
   },
 });
 
+// Companies for the "Recent" picker, deduped to one row per company name
+// (the newest) with its latest run's jurisdiction/status/time attached —
+// pure UI-support query, no new data: everything here is already stored.
+// Without the dedup, re-researching the same company repeatedly (a normal
+// thing to do to compare jurisdictions) fills "Recent" with a wall of
+// identically-named entries.
+export const recentCompanies = query({
+  args: {},
+  handler: async (ctx) => {
+    const companies = await ctx.db.query("companies").order("desc").take(50);
+    const seenNames = new Set<string>();
+    const deduped = companies
+      .filter((c) => {
+        const key = c.name.trim().toLowerCase();
+        if (seenNames.has(key)) return false;
+        seenNames.add(key);
+        return true;
+      })
+      .slice(0, 12);
+
+    return await Promise.all(
+      deduped.map(async (c) => {
+        const latestRun = await ctx.db
+          .query("researchRuns")
+          .withIndex("by_companyId", (q) => q.eq("companyId", c._id))
+          .order("desc")
+          .first();
+        return {
+          companyId: c._id,
+          name: c.name,
+          requestedJurisdiction: latestRun?.requestedJurisdiction ?? null,
+          status: latestRun?.status ?? null,
+          at: latestRun?.finishedAt ?? latestRun?.startedAt ?? c.createdAt,
+        };
+      }),
+    );
+  },
+});
+
 export const listByCompany = query({
   args: { companyId: v.id("companies") },
   handler: async (ctx, { companyId }) => {

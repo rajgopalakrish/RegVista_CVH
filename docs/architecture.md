@@ -107,7 +107,8 @@ reactive per-company views.
 - `companies.ts`
   - `create` (mutation): insert a company, return its id.
   - `get` (query): fetch a company by id.
-  - `list` (query): recent companies (for a simple picker/history).
+  - `list` (query): recent companies, unfiltered — superseded in the UI by
+    `research.recentCompanies` below, kept as-is/unused rather than removed.
 - `research.ts`
   - `start` (mutation): create a `researchRuns` row in `pending` state,
     schedule the `run` action via `ctx.scheduler.runAfter`, return the run id.
@@ -117,6 +118,10 @@ reactive per-company views.
     applicability/sourceQuality) on every new write.
   - `listByCompany` (query): reactive findings + profile + run status for a
     company.
+  - `recentCompanies` (query): companies for the "Recent" picker, deduped
+    to one row per company name (newest wins) with that company's latest
+    run's `requestedJurisdiction`/status/time attached — pure UI-support
+    query over already-stored data, no new computation.
   - `run` (internalAction, in `researchActions.ts`) — three stages:
     1. **Company profiling**: one OpenAI call infers sector, business model,
        geographic footprint, and regulatory exposure areas from the

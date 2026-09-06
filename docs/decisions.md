@@ -632,6 +632,128 @@ topics. The prompt sharpening measurably reduced the worst cases (no more
 fully-invented mega-compound titles); the remaining gap is a judgment call
 best left to further prompt iteration, not a crude regex.
 
+## 2026-09-06 — Product polish pass: intelligence-terminal UI + Regulatory Exposure Map
+
+With the regulatory core frozen, this pass was UI-only per the user's
+explicit instruction: no changes to retrieval, classification, jurisdiction
+filtering, or applicability safeguards. Goal: make RegVista read as a
+regulatory intelligence terminal (`Company → business/exposure →
+jurisdiction → regimes → what's changing → why it matters → evidence`)
+rather than a hackathon demo, per `docs/product-spec.md`'s pitch.
+
+**One backend addition, purely to expose existing data**: `research.ts`
+gained `recentCompanies` — a query that dedupes the `companies` table by
+name (keeping the newest) and attaches each one's latest run's
+`requestedJurisdiction`/`status`/timestamp via the existing `by_companyId`
+index. Nothing new is computed or classified; every field it returns
+already existed. This replaced `companies.list` as the data source for the
+"Recent" list (left `companies.list` itself in place, unused, rather than
+remove a working export outside this pass's scope) — without it, the
+"Recent" strip filled with duplicate entries every time a company was
+re-researched (a normal thing to do to compare jurisdictions), which is
+exactly the "noisy wall of duplicates" the user flagged.
+
+**`src/App.tsx` / `src/index.css` rewritten for visual hierarchy**, same
+data and same component responsibilities, no new libraries:
+- Header: added a small "Regulatory Intelligence" eyebrow next to the
+  wordmark instead of new marketing copy; kept the existing one-line
+  tagline verbatim (it already states the product principle exactly).
+- Research form: company name is now the visually primary field
+  (larger, own row with jurisdiction + submit), industry demoted to a
+  smaller secondary row — matches "make company + jurisdiction the
+  obvious primary action."
+- Company profile: restyled as a labeled brief (small-caps field labels
+  for "Regulatory exposure" / "Geographic footprint") instead of an
+  unlabeled paragraph + tag soup — same fields, clearer hierarchy.
+- Finding cards: split the single crowded badge row into a top row
+  (item type + relevance), a plain-text meta line (jurisdiction ·
+  regulator · status), and one combined applicability indicator (a
+  colored dot + "Core exposure · Strongly inferred" in one pill instead
+  of two separate badges) — fewer, more meaningful visual elements per
+  the "do not overwhelm with metadata" instruction. "Why this matters"
+  got its own subtly bordered block so it reads as the analyst's
+  takeaway, not just another paragraph.
+- Sources: rather than an unverified "Primary source" label on whichever
+  URL sorts first (that would overclaim — the sort is "least-bad first,"
+  not a guarantee of TIER_1), added an honest `sourceQuality`-driven tag
+  ("Regulator / government source" / "Official guidance") shown only when
+  the finding's own classification actually says so, with no tag at all
+  for TIER_3 secondary reporting. All sources are still shown as compact
+  domain-name links (via `new URL().hostname`) instead of raw scraped
+  titles; none dropped.
+- Each of the three finding groups got a distinct accent color (left
+  border + heading dot: green/amber/blue for Active/Upcoming/
+  Developments) plus a count badge, so the three sections are
+  distinguishable at a glance, not just by their heading text.
+- Loading state is a small spinner + message instead of bare "Loading…";
+  the empty-findings state and the run-error state each got their own
+  bordered box instead of a plain `<p>`; a small inline spinner now shows
+  next to the run-status badge while a run is pending/running.
+- The AgentMail briefing form is now inside a bordered card with a one-
+  line explanation ("Send the current regulatory landscape to your inbox
+  via AgentMail"), reading as a natural next action rather than an
+  afterthought form at the bottom of the page.
+- Recent list: replaced the plain-name chip row with compact rows —
+  a status dot, company name, and `Jurisdiction · status · relative time`
+  — using the new deduped query, and a small `formatRelativeTime` helper
+  (no date library).
+
+**Regulatory Exposure Map** (the pass's main optional enhancement,
+implemented): `Company → Regulatory Exposure Area (lane) → Regulatory
+Regime (chip, tagged with its jurisdiction + regulator) → Active/Upcoming/
+Enforcement (color)`. Built entirely from the current run's own
+`REGULATION_REGIME` findings — grouped by each finding's existing
+`regulatoryArea` field into lanes (chosen over the company profile's own
+`regulatoryExposureAreas` array, since the profile's Stage-1 domain labels
+and each finding's own Stage-3 `regulatoryArea` aren't guaranteed to match
+textually; grouping by the finding's own field keeps every chip's lane
+membership faithful to that specific finding). A regime chip is colored
+amber when `status === "FUTURE_OR_PROPOSED"` (Upcoming) and green
+otherwise (Active), plus gets a red enforcement ring when any other
+finding from the same run shares its `regimeKey` and has
+`status === "ENFORCEMENT_DEVELOPMENT"` — connecting two independently-
+classified findings visually without any new backend logic. Clicking a
+chip calls `scrollIntoView` on the matching `#finding-<id>` element and
+applies a 2.2s highlight animation, connecting the map back to its finding
+per the request. No graph library, no SVG — plain flexbox lanes with a
+CSS-only connector line from a "company" node down into each lane header,
+deliberately chosen over a literal node/edge graph (fragile to keep
+readable as finding counts grow) or a geographic map (explicitly ruled
+out). Renders nothing (not an empty box) when a run has zero
+`REGULATION_REGIME` findings, rather than forcing a map with nothing to
+show.
+
+**Verified live** (`ConvexHttpClient`, since this sandbox's egress proxy
+still can't tunnel the WebSocket a real browser session would use —
+same documented limitation as every prior pass, not new): re-ran TikTok +
+Singapore (2 `REGULATION_REGIME` findings across 2 exposure-area lanes —
+`Digital Platform / Online Safety Regulation`, `Data Protection & Privacy`
+— confirming the map has real multi-lane data to render, not an edge
+case) and Stripe + Global/Auto-detect (6 `REGULATION_REGIME` findings
+across 5 lanes, including a `status=ENFORCEMENT_DEVELOPMENT` item
+surfacing correctly as both an "active" green-bordered chip and enforcement-
+ringed, validating that edge case renders sensibly). `requestedJurisdiction`
+on both runs matched what was requested (`"Singapore"`, and `null` for
+auto-detect) — the jurisdiction display/reset logic itself was untouched
+this pass. Also verified `recentCompanies`: 8 distinct company names
+returned with zero duplicates after re-researching several of them
+multiple times across this session's testing, confirming the dedup works
+against real accumulated data, not just a fresh table.
+
+`npx tsc -b --noEmit` (frontend) and `npx tsc -p convex/tsconfig.json
+--noEmit` (backend) both clean; `npm run build` succeeds. The Convex
+backend deploy succeeded; the static-hosting frontend deploy still hits
+the pre-existing 403 on the storage-upload step documented in the prior
+two passes (unrelated to this session's code — same failure occurred
+before any of this pass's changes) — so the live `convex.site` URL is not
+serving this pass's build. Full in-browser rendering (React mounting,
+`useQuery` subscriptions, click interactions) could not be visually
+verified for the same reason documented since the first live-deployment
+pass: this sandbox's proxy doesn't support WebSocket upgrades, and
+Playwright/Chromium confirmed that directly in an earlier pass. Everything
+that could be verified without a browser (data correctness, typecheck,
+build, live query/mutation calls) was verified above.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator
