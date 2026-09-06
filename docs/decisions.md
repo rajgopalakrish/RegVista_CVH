@@ -789,6 +789,62 @@ was a live, real, previously-unfixed bug the whole time, not cosmetic
 noise — the polish-pass UI (Regulatory Exposure Map included) is now
 actually being served at the live URL, not just committed to the repo.
 
+## 2026-09-06 — UI/evidence presentation cleanup from real Google + Singapore output (engine untouched)
+
+User review of the rendered app caught three presentation issues. Fixed
+in `src/App.tsx`/`src/index.css` only — no Convex files touched, engine
+(retrieval/classification/jurisdiction/applicability fields) untouched:
+
+1. **Source label overclaimed.** The sources block was headed with the
+   finding's `sourceQuality` tag (e.g. "Regulator / government source")
+   even though `sources` often also lists company/vendor domains —
+   `sourceQuality` is a per-finding evidence-tier judgment, not a
+   per-URL verification, so labeling the whole list that way overclaimed.
+   Changed the section header to a neutral "Sources" label, and moved the
+   quality tag to sit beside only the primary (already sorted to the
+   front by the existing `sourceAuthorityRank` logic) source link — an
+   honest "this leading source is regulator-grade," not "all of these
+   are."
+2. **Source clutter.** Secondary sources beyond the primary one are now
+   collapsed behind a native `<details>`/`<summary>` disclosure
+   ("+N supporting sources") instead of always dumping every domain
+   inline. No data is dropped — every URL is still rendered, just
+   collapsed by default.
+3. **Applicability language inconsistency.** The engine's own guardrail
+   (`neutralizeUnsupportedClaims` in `researchActions.ts`, unchanged)
+   only targets specific designation/license/fine claims. It doesn't
+   catch general definitive-applicability phrasing like "falls under",
+   "is subject to", or "must comply with" — which the user's own review
+   caught live. Rather than touch the frozen engine, added a
+   presentation-only helper (`presentApplicabilityText`) that runs at
+   render time: for any finding where `applicabilityEvidence` isn't
+   `DIRECTLY_EVIDENCED`, it scans each sentence of `summary`/
+   `whyItMatters` and — only for sentences with no hedge word already
+   present — swaps a small named set of definitive phrases for their
+   hedged equivalent ("falls under" → "may fall under", "is subject to"
+   → "may be subject to", "must comply with" → "may need to comply
+   with", etc.), via one combined regex applied in a single pass.
+   `DIRECTLY_EVIDENCED` findings and any already-hedged sentence pass
+   through completely unchanged; the underlying stored `summary`/
+   `whyItMatters` values are never modified, only what's rendered.
+   Caught and fixed a real bug in the first version of this logic before
+   shipping it: applying each phrase-pattern as a separate sequential
+   `.replace()` let a later pattern (`"fall under"`) re-match text a
+   previous pattern had just inserted (`"may fall under"`), producing
+   "may may fall under" — fixed by combining all phrases into one
+   regex so each sentence is scanned once, verified against multiple
+   real-world-shaped sentences before and after the fix.
+
+Verified: `npx tsc -b --noEmit` (frontend) clean, `npx tsc -p
+convex/tsconfig.json --noEmit` (backend, unaffected — confirmed via `git
+diff --stat` showing only `src/App.tsx`/`src/index.css` changed) clean,
+`npm run build` succeeds. The new hedging logic was also verified
+directly (outside the React tree) against six representative sentences
+spanning all three evidence levels plus an already-hedged case, both
+before and after the double-hedge fix, confirming the fix and no
+regressions. Per the user's explicit "then stop" instruction, this pass
+did not redeploy or re-run the live E2E pipeline tests.
+
 ## Open questions (not yet decided)
 
 - Exact Firecrawl call shape (search vs. targeted crawl of known regulator

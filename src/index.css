@@ -773,14 +773,24 @@ body {
 /* --- Sources ----------------------------------------------------------------- */
 
 .sources {
-  margin-top: 0.75rem;
+  margin-top: 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 
+.sources .field-label {
+  margin-bottom: 0.05rem;
+}
+
+.source-primary-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .source-quality-tag {
-  align-self: flex-start;
   font-size: 0.72rem;
   color: #8fd6a5;
   background: #142418;
@@ -802,6 +812,42 @@ body {
 
 .source-link-lead {
   font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.sources-secondary {
+  margin-top: 0.1rem;
+}
+
+.sources-secondary summary {
+  color: #9aa3b2;
+  font-size: 0.8rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sources-secondary summary::-webkit-details-marker {
+  display: none;
+}
+
+.sources-secondary summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.35rem;
+  transition: transform 0.15s;
+}
+
+.sources-secondary[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.sources-secondary:hover summary {
+  color: #cdd3e0;
+}
+
+.sources-secondary .source-links {
+  margin-top: 0.4rem;
+  padding-left: 1.1rem;
 }
 
 /* --- Briefing card ------------------------------------------------------------ */

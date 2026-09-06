@@ -347,3 +347,25 @@ deploy` succeeds standalone and the live site
 build (200 on the page and both built assets) — including the product-
 polish pass's UI and Regulatory Exposure Map, which had been committed
 but never actually live until now.
+
+### 2026-09-06 - (UI/evidence presentation cleanup)
+Fixed three issues the user caught reviewing real Google + Singapore
+output, UI-only, regulatory engine untouched (only `src/App.tsx`/
+`src/index.css` changed): the sources block no longer labels the whole
+list "Regulator / government source" when it can include company/vendor
+domains — reworded to a neutral "Sources" header with the quality tag
+moved to sit beside only the primary (already-sorted) source link;
+secondary sources now collapse behind a "+N supporting sources"
+disclosure instead of dumping every domain inline; and a new
+presentation-only `presentApplicabilityText` helper softens definitive
+applicability phrasing ("falls under", "is subject to", "must comply
+with") in `summary`/`whyItMatters` at render time whenever
+`applicabilityEvidence` isn't `DIRECTLY_EVIDENCED` and the sentence isn't
+already hedged — the engine's own `neutralizeUnsupportedClaims` guardrail
+only targets specific designation/license/fine claims, not this broader
+phrasing, and this stays presentation-only rather than touching the
+frozen engine. Caught and fixed a double-hedging bug in the first version
+("falls under" → "may may fall under" from two sequential regex passes)
+before shipping, by combining all phrases into a single regex pass;
+re-verified against six representative sentences. Frontend typecheck,
+backend typecheck (unaffected), and `npm run build` all pass.

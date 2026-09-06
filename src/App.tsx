@@ -242,6 +242,61 @@ const SOURCE_QUALITY_LABELS: Record<string, string> = {
   TIER_3_SECONDARY_REPORTING: "Secondary reporting",
 };
 
+// Presentation-only consistency pass: the underlying research engine
+// already sets applicabilityEvidence honestly and (per its own guardrail)
+// avoids stating a specific designation/license/fine as fact when evidence
+// isn't DIRECTLY_EVIDENCED — but that guardrail targets specific status
+// claims, not general definitive-applicability phrasing like "falls under"
+// or "must comply with". This softens exactly that narrow, named set of
+// phrases at render time — never touching the stored summary/whyItMatters,
+// never touching applicabilityLevel/applicabilityEvidence themselves, and
+// leaving DIRECTLY_EVIDENCED findings (and any sentence that's already
+// hedged) completely untouched.
+const HEDGE_WORDS_RE =
+  /\b(may|might|could|possibly|potentially|likely|appears? to|is believed|reportedly|is thought|plausibly)\b/i;
+
+// Phrase -> hedged replacement. Built into ONE combined regex (rather than
+// applying each pattern in sequence) so a single scan replaces every match
+// exactly once — sequential per-pattern replacement risks a phrase like
+// "fall under" re-matching inside the "may fall under" text just inserted
+// by the "falls under" pattern, producing "may may fall under".
+const APPLICABILITY_PHRASE_MAP: Record<string, string> = {
+  "falls under": "may fall under",
+  "fall under": "may fall under",
+  "is subject to": "may be subject to",
+  "are subject to": "may be subject to",
+  "must comply with": "may need to comply with",
+  "is required to comply with": "may be required to comply with",
+  "are required to comply with": "may be required to comply with",
+  "is governed by": "may be governed by",
+  "are governed by": "may be governed by",
+  "is bound by": "may be bound by",
+  "are bound by": "may be bound by",
+  "is regulated by": "may be regulated by",
+  "are regulated by": "may be regulated by",
+};
+const APPLICABILITY_PHRASE_PATTERN = Object.keys(APPLICABILITY_PHRASE_MAP)
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+const DEFINITIVE_APPLICABILITY_RE = new RegExp(`\\b(${APPLICABILITY_PHRASE_PATTERN})\\b`, "i");
+const DEFINITIVE_APPLICABILITY_REPLACE_RE = new RegExp(`\\b(${APPLICABILITY_PHRASE_PATTERN})\\b`, "gi");
+
+function presentApplicabilityText(text: string, evidence: string | undefined): string {
+  if (!evidence || evidence === "DIRECTLY_EVIDENCED") return text;
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const softened = sentences.map((sentence) => {
+    // Already hedged (by the model itself, or by the engine's own
+    // designation-claim guardrail) — leave it exactly as written.
+    if (HEDGE_WORDS_RE.test(sentence)) return sentence;
+    if (!DEFINITIVE_APPLICABILITY_RE.test(sentence)) return sentence;
+    return sentence.replace(
+      DEFINITIVE_APPLICABILITY_REPLACE_RE,
+      (match) => APPLICABILITY_PHRASE_MAP[match.toLowerCase()] ?? match,
+    );
+  });
+  return softened.join(" ");
+}
+
 function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
   const company = useQuery(api.companies.get, { companyId });
   const landscape = useQuery(api.research.listByCompany, { companyId });
@@ -600,26 +655,40 @@ function domainOf(url: string): string {
 
 function SourcesList({ finding }: { finding: Finding }) {
   if (finding.sources.length === 0) return null;
+  const [primary, ...secondary] = finding.sources;
+  // sourceQuality is a per-finding evidence-tier judgment, not a per-URL
+  // verification — attaching it to every link in a mixed list (e.g. a
+  // regulator page alongside a vendor blog) would overclaim about sources
+  // that weren't individually confirmed. Anchoring it to just the primary
+  // link (already sorted to the front by the engine's own authority
+  // ranking) keeps the claim honest: "this leading source is regulator-
+  // grade," not "all these sources are."
   const qualityLabel = finding.sourceQuality ? SOURCE_QUALITY_LABELS[finding.sourceQuality] : null;
+  const showQualityTag = qualityLabel && finding.sourceQuality !== "TIER_3_SECONDARY_REPORTING";
 
   return (
     <div className="sources">
-      {qualityLabel && finding.sourceQuality !== "TIER_3_SECONDARY_REPORTING" && (
-        <span className="source-quality-tag">{qualityLabel}</span>
-      )}
-      <div className="source-links">
-        {finding.sources.map((s, i) => (
-          <a
-            key={i}
-            href={s.url}
-            target="_blank"
-            rel="noreferrer"
-            className={i === 0 ? "source-link source-link-lead" : "source-link"}
-          >
-            {domainOf(s.url)}
-          </a>
-        ))}
+      <span className="field-label">Sources</span>
+      <div className="source-primary-row">
+        <a href={primary.url} target="_blank" rel="noreferrer" className="source-link source-link-lead">
+          {domainOf(primary.url)}
+        </a>
+        {showQualityTag && <span className="source-quality-tag">{qualityLabel}</span>}
       </div>
+      {secondary.length > 0 && (
+        <details className="sources-secondary">
+          <summary>
+            +{secondary.length} supporting source{secondary.length > 1 ? "s" : ""}
+          </summary>
+          <div className="source-links">
+            {secondary.map((s, i) => (
+              <a key={i} href={s.url} target="_blank" rel="noreferrer" className="source-link">
+                {domainOf(s.url)}
+              </a>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -666,10 +735,10 @@ function FindingCard({ finding: f, highlighted }: { finding: Finding; highlighte
         {f.status && <> · {STATUS_LABELS[f.status] ?? f.status}</>}
       </p>
       <ApplicabilityIndicator level={f.applicabilityLevel} evidence={f.applicabilityEvidence} />
-      <p className="finding-summary">{f.summary}</p>
+      <p className="finding-summary">{presentApplicabilityText(f.summary, f.applicabilityEvidence)}</p>
       <p className="why-it-matters">
         <strong>Why this matters</strong>
-        {f.whyItMatters}
+        {presentApplicabilityText(f.whyItMatters, f.applicabilityEvidence)}
       </p>
       {dates.length > 0 && <p className="finding-dates">{dates.join(" · ")}</p>}
       <SourcesList finding={f} />
