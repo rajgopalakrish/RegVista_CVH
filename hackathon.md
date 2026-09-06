@@ -2,11 +2,12 @@
 
 - **Project:** RegVista
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Enter a company and see its regulatory landscape — an
-  inferred sector/exposure profile, its active regulatory regimes (e.g.
-  GDPR), upcoming/changing rules, and recent enforcement/developments, each
-  evidence-backed with a relevance score, applicability, and "why this
-  matters," plus an emailed briefing.
+- **What it does:** Enter a company, optionally scope it to a jurisdiction
+  (Singapore/EU/UK/US/Australia/India/China, or Global/Auto-detect), and see
+  its regulatory landscape — an inferred sector/exposure profile, its active
+  regulatory regimes (e.g. GDPR), upcoming/changing rules, and recent
+  enforcement/developments, each evidence-backed with a relevance score,
+  applicability, and "why this matters," plus an emailed briefing.
 - **Live app:** https://brilliant-roadrunner-68.convex.site
 - **Repo:** https://github.com/rajgopalakrish/RegVista_CVH
 - **Frontend:** Convex static hosting
@@ -16,7 +17,7 @@
 - **Auth:** none
 - **AI models:** gpt-4.1-mini (direct OpenAI SDK, two calls per run: company profiling, then classification — not the Convex AI Gateway)
 - **Started:** 2026-09-05T07:16:49Z
-- **Last updated:** 2026-09-06T03:41:14Z
+- **Last updated:** 2026-09-06T04:12:20Z
 
 ## Log
 
@@ -142,3 +143,26 @@ enforcement development tagged to GDPR — and DBS Bank (Singapore) — MAS
 capital-adequacy regulation, an HKMA AML/CTF enforcement action, and
 Bangladesh banking oversight, a completely different regulatory domain set
 driven entirely by the inferred profile.
+
+### 2026-09-06 - 1fbfded
+Added an optional jurisdiction selector (`convex/schema.ts`'s
+`JURISDICTIONS`: Singapore, EU, UK, US, Australia, India, China — a plain
+array, easy to extend) to the existing form, alongside a "Jurisdiction:"
+line in the landscape header. `researchRuns` gained `requestedJurisdiction`.
+The key behavior: when a jurisdiction is selected, it *replaces* the
+profile-derived jurisdiction in every Firecrawl query (`researchActions.ts`)
+instead of retrieving globally and filtering afterward — auto-detect keeps
+the prior behavior unchanged. Also did a focused source-quality cleanup: a
+general `isUsableSource` filter drops noisy auto-generated-looking source
+titles before they can be cited, `sourceAuthorityRank` sorts each finding's
+sources so a `.gov`/regulator-domain source reads as primary evidence, and
+the `sourceQuality` field's own prompt description got concrete good/bad
+examples after testing showed the model mislabeling a private compliance
+vendor site as TIER_1. Verified live: ByteDance + European Union produced
+5/5 EU-scoped findings (DSA and GDPR as TIER_1 regimes from
+`ec.europa.eu`/`dataprotection.ie`, the real €530M Irish DPC GDPR fine as a
+supporting enforcement item) with none of the profile's US/China/India
+footprint leaking in; DBS Bank + Singapore produced an MAS AML/CFT
+enforcement action naming DBS specifically, the Payment Services Act, and
+Basel III implementation; Stripe + Global/Auto-detect reproduced the
+pre-existing US/EU/UK multi-jurisdiction discovery unchanged.
