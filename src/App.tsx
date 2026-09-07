@@ -79,6 +79,10 @@ export default function App() {
           <span className="brand-badge">Regulatory Intelligence</span>
         </div>
         <p className="tagline">Enter a company. See its regulatory world.</p>
+        <p className="tagline-sub">
+          Every regime, regulator, and jurisdiction a company is exposed to — mapped from what it
+          actually does, traced back to primary sources.
+        </p>
       </header>
 
       <CompanyPicker selectedId={companyId} onSelect={setCompanyId} />

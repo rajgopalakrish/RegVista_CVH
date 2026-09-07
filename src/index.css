@@ -37,6 +37,10 @@ body {
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  /* A faint atmospheric wash behind the motif — landing-page-only, kept on
+     this already-proven inset:0/z-index:-1 element rather than added to
+     .app-header itself, so it inherits the same containment guarantees. */
+  background-image: radial-gradient(ellipse 900px 400px at 50% -10%, rgba(79, 124, 255, 0.09), transparent 65%);
 }
 
 .hero-motif-svg {
@@ -48,7 +52,7 @@ body {
 .hero-motif-lines line {
   stroke: #4f7cff;
   stroke-width: 1;
-  opacity: 0.16;
+  opacity: 0.19;
 }
 
 .hero-motif-node {
@@ -57,16 +61,17 @@ body {
 
 .hero-motif-node-root {
   fill: #7fa0ff;
-  opacity: 0.6;
-  filter: drop-shadow(0 0 6px rgba(79, 124, 255, 0.55));
+  opacity: 0.75;
+  filter: drop-shadow(0 0 9px rgba(79, 124, 255, 0.6)) drop-shadow(0 0 16px rgba(79, 124, 255, 0.28));
 }
 
 .hero-motif-node-area {
-  opacity: 0.4;
+  opacity: 0.5;
+  filter: drop-shadow(0 0 4px rgba(79, 124, 255, 0.35));
 }
 
 .hero-motif-node-leaf {
-  opacity: 0.26;
+  opacity: 0.32;
 }
 
 /* Mobile: a shorter backdrop crops the same SVG (preserveAspectRatio
@@ -87,6 +92,10 @@ body {
 .brand h1 {
   font-size: 1.6rem;
   letter-spacing: -0.01em;
+  background: linear-gradient(100deg, #ffffff 0%, #dbe6ff 45%, #7fe0ff 85%, #4f7cff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .brand {
@@ -104,16 +113,26 @@ body {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #8fa0c9;
-  border: 1px solid #2a3348;
+  color: #7fe0ff;
+  border: 1px solid rgba(127, 224, 255, 0.32);
+  background: rgba(79, 124, 255, 0.07);
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
   white-space: nowrap;
+  box-shadow: 0 0 14px rgba(79, 124, 255, 0.14);
 }
 
 .tagline {
   color: #9aa3b2;
   margin: 0.1rem 0 0;
+}
+
+.tagline-sub {
+  color: #6c7690;
+  font-size: 0.9rem;
+  margin: 0.3rem 0 0;
+  max-width: 620px;
+  line-height: 1.5;
 }
 
 /* Shared small-caps section/field label used across the picker, profile
@@ -140,6 +159,11 @@ body {
 
 .research-form {
   margin: 0 0 1.25rem;
+  background: linear-gradient(180deg, #131a29 0%, #0d111a 100%);
+  border: 1px solid #2a3348;
+  border-radius: 14px;
+  padding: 1.4rem 1.5rem 1.2rem;
+  box-shadow: 0 24px 48px -30px rgba(0, 0, 0, 0.7), 0 0 30px -20px rgba(79, 124, 255, 0.22);
 }
 
 .research-form-primary {
@@ -194,12 +218,13 @@ body {
   padding: 0.65rem 1.2rem;
   border-radius: 8px;
   border: none;
-  background: #4f7cff;
+  background: linear-gradient(135deg, #5f8bff, #4f7cff 60%, #3f68e8);
   color: white;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   align-self: stretch;
+  box-shadow: 0 10px 22px -12px rgba(79, 124, 255, 0.5);
 }
 
 .briefing-form button {
