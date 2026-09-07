@@ -82,10 +82,6 @@ export default function App() {
           <span className="brand-badge">Regulatory Intelligence</span>
         </div>
         <p className="tagline">Enter a company. See its regulatory world.</p>
-        <p className="tagline-sub">
-          Every regime, regulator, and jurisdiction a company is exposed to — mapped from what it
-          actually does, traced back to primary sources.
-        </p>
       </header>
 
       <CompanyPicker selectedId={companyId} onSelect={setCompanyId} />
@@ -810,6 +806,21 @@ function RegulatoryExposureMap({
         jurisdictions that matter — click a regime to jump to its finding.
       </p>
 
+      <div className="exposure-map-legend">
+        <span>
+          <i className="legend-dot legend-active" /> Active
+        </span>
+        <span>
+          <i className="legend-dot legend-upcoming" /> Upcoming
+        </span>
+        <span>
+          <i className="legend-dot legend-enforced" /> Enforcement
+        </span>
+        <span className="legend-provenance">
+          <ProvenanceTick /> Regulator-sourced
+        </span>
+      </div>
+
       <div className="exposure-map-root">
         <div className="exposure-map-company-node">
           <CompanyBadge name={companyName} size="sm" />
@@ -872,21 +883,6 @@ function RegulatoryExposureMap({
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="exposure-map-legend">
-        <span>
-          <i className="legend-dot legend-active" /> Active
-        </span>
-        <span>
-          <i className="legend-dot legend-upcoming" /> Upcoming
-        </span>
-        <span>
-          <i className="legend-dot legend-enforced" /> Enforcement
-        </span>
-        <span className="legend-provenance">
-          <ProvenanceTick /> Regulator-sourced
-        </span>
       </div>
     </div>
   );

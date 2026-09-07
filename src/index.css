@@ -92,10 +92,6 @@ body {
 .brand h1 {
   font-size: 1.6rem;
   letter-spacing: -0.01em;
-  background: linear-gradient(100deg, #ffffff 0%, #dbe6ff 45%, #7fe0ff 85%, #4f7cff 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 
 .brand {
@@ -131,14 +127,6 @@ body {
 .tagline {
   color: #9aa3b2;
   margin: 0.1rem 0 0;
-}
-
-.tagline-sub {
-  color: #6c7690;
-  font-size: 0.9rem;
-  margin: 0.3rem 0 0;
-  max-width: 620px;
-  line-height: 1.5;
 }
 
 /* Shared small-caps section/field label used across the picker, profile
