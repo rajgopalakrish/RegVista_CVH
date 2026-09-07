@@ -414,80 +414,36 @@ body {
   letter-spacing: -0.015em;
 }
 
-/* --- Company brand chips ---------------------------------------------------
-   Colored wordmark chips for the specific demo companies (see CompanyBadge
-   in App.tsx) — brand-associated color + the company's own name, not traced
-   logo artwork. Renders nowhere for a company without an entry. */
-.brand-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-weight: 700;
-  border-radius: 7px;
-  white-space: nowrap;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.brand-chip-md {
-  font-size: 0.78rem;
-  padding: 0.32rem 0.6rem;
-}
-
-.brand-chip-sm {
-  font-size: 0.66rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 6px;
-}
-
-.brand-chip-grab {
-  background: #00b14f;
-  color: #fff;
-}
-
-.brand-chip-dbs {
-  background: #e4002b;
-  color: #fff;
-}
-
-.brand-chip-stripe {
-  background: #635bff;
-  color: #fff;
-  text-transform: lowercase;
-}
-
-.brand-chip-google {
-  background: #20242c;
-  color: #e8eaf0;
-  border: 1px solid #333a4a;
-}
-
-.brand-chip-dots {
-  display: inline-flex;
-  gap: 2px;
-}
-
-.brand-chip-dots i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
+/* --- Company logo mark ------------------------------------------------------
+   Auto-resolved favicon-as-logo for a company's stored name (see
+   CompanyBadge/guessCompanyDomain in App.tsx) — no per-company list, no
+   traced logo artwork. A neutral dark backing square keeps a
+   transparent-background favicon from reading as a bare floating icon on
+   the page background, and the faint blue border/glow ties it to the rest
+   of RegVista's accent system. Renders nowhere for a company whose favicon
+   can't be resolved. */
+.company-logo {
   display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  border-radius: 5px;
+  background: #131a29;
+  border: 1px solid rgba(127, 170, 255, 0.28);
+  box-shadow: 0 0 8px rgba(79, 124, 255, 0.16);
+  object-fit: contain;
 }
 
-.brand-chip-dots i:nth-child(1) {
-  background: #4285f4;
+.company-logo-md {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
 }
 
-.brand-chip-dots i:nth-child(2) {
-  background: #ea4335;
-}
-
-.brand-chip-dots i:nth-child(3) {
-  background: #fbbc05;
-}
-
-.brand-chip-dots i:nth-child(4) {
-  background: #34a853;
+.company-logo-sm {
+  width: 16px;
+  height: 16px;
+  padding: 1px;
+  border-radius: 4px;
 }
 
 .run-status {

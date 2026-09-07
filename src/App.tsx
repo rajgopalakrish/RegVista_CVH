@@ -301,37 +301,58 @@ function RecentList({
 
 type Finding = Doc<"findings">;
 
-// Subtle brand identity for the specific companies used in demos — a
-// colored wordmark chip built from the company's own name and brand color,
-// not traced logo artwork (no external asset fetch, no added dependency).
-// Matched by substring against the company's stored name (e.g. "Grab
-// Holdings" still matches "grab"), so it's additive and silent for any
-// other company: CompanyBadge renders nothing unless a name matches one of
-// these entries — never add one for a company not actually being
-// demonstrated.
-type CompanyBrand = { test: (name: string) => boolean; label: string; className: string };
-const COMPANY_BRANDS: CompanyBrand[] = [
-  { test: (n) => n.toLowerCase().includes("grab"), label: "Grab", className: "brand-chip-grab" },
-  { test: (n) => n.toLowerCase().includes("dbs"), label: "DBS", className: "brand-chip-dbs" },
-  { test: (n) => n.toLowerCase().includes("google"), label: "Google", className: "brand-chip-google" },
-  { test: (n) => n.toLowerCase().includes("stripe"), label: "Stripe", className: "brand-chip-stripe" },
-];
+// Words stripped from the end of a company name before guessing its
+// domain (legal-entity suffixes that are essentially never part of the
+// actual domain — "Grab Holdings" -> "grab", not "grabholdings").
+const DOMAIN_SUFFIX_STOPWORDS = new Set([
+  "inc", "incorporated", "corp", "corporation", "co", "company", "ltd",
+  "limited", "llc", "plc", "holdings", "holding", "group", "gmbh", "sa",
+  "nv", "ag", "pte",
+]);
 
+// Best-effort, fully automatic domain guess from a stored company name —
+// no lookup table, no manual curation. Strips punctuation and trailing
+// legal-entity words, then concatenates what's left (the common real-world
+// domain convention for multi-word names, e.g. "Bank of America" ->
+// bankofamerica.com) and appends ".com". This is a heuristic, not a
+// verified registry lookup — it will occasionally guess wrong or land on
+// an unregistered domain, which is exactly why CompanyBadge below treats
+// its result as "try this, fall back silently if it doesn't pan out"
+// rather than something guaranteed to resolve.
+function guessCompanyDomain(name: string): string | null {
+  const words = name
+    .toLowerCase()
+    .replace(/[.,'’&]/g, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  while (words.length > 1 && DOMAIN_SUFFIX_STOPWORDS.has(words[words.length - 1])) {
+    words.pop();
+  }
+  const cleaned = words.join("");
+  return cleaned ? `${cleaned}.com` : null;
+}
+
+// Renders the small logo mark shown next to a company name (Recent rows,
+// the results header, the Exposure Map's company node). Fully automatic:
+// resolves a likely domain from the name above and requests that domain's
+// favicon from a public, keyless favicon service — no per-company
+// configuration, so any recognizable company works the same way, not just
+// a hardcoded set. If the guessed domain has no usable favicon (unknown
+// company, unusual name, or the request simply fails), the <img> hides
+// itself via onError and nothing renders — the plain-text name each
+// caller already renders alongside this is the fallback, not something
+// this component draws itself.
 function CompanyBadge({ name, size = "md" }: { name: string; size?: "md" | "sm" }) {
-  const brand = COMPANY_BRANDS.find((b) => b.test(name));
-  if (!brand) return null;
+  const [failed, setFailed] = useState(false);
+  const domain = guessCompanyDomain(name);
+  if (!domain || failed) return null;
   return (
-    <span className={`brand-chip ${brand.className} brand-chip-${size}`}>
-      {brand.className === "brand-chip-google" && (
-        <span className="brand-chip-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-        </span>
-      )}
-      {brand.label}
-    </span>
+    <img
+      className={`company-logo company-logo-${size}`}
+      src={`https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(domain)}`}
+      alt=""
+      onError={() => setFailed(true)}
+    />
   );
 }
 
