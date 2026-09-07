@@ -65,6 +65,28 @@ export const applicabilityEvidenceValidator = v.union(
   ...APPLICABILITY_EVIDENCE_LEVELS.map((e) => v.literal(e)),
 );
 
+// How current a forward-looking (consultation/proposed-rule/implementation,
+// or a REGULATION_REGIME still FUTURE_OR_PROPOSED) item's classification
+// actually is — distinct from `status` above, which only distinguishes an
+// established regime's in-force state. Only ever computed for
+// forward-looking items; an already-effective regime doesn't need this.
+// FINALIZED/EFFECTIVE/WITHDRAWN/SUPERSEDED exist for a future pass that can
+// establish a positive outcome (e.g. a real re-verification) — nothing in
+// this pass ever assigns them, since doing so without evidence would be
+// exactly the fabrication this field exists to prevent.
+export const TEMPORAL_STATUSES = [
+  "PROPOSED",
+  "CONSULTATION",
+  "FINALIZED",
+  "EFFECTIVE",
+  "WITHDRAWN",
+  "SUPERSEDED",
+  "STATUS_UNKNOWN",
+] as const;
+export const temporalStatusValidator = v.union(
+  ...TEMPORAL_STATUSES.map((s) => v.literal(s)),
+);
+
 // A starter set of jurisdictions a user can explicitly scope research to.
 // "Global / Auto-detect" isn't in this list — it's the absence of a
 // requested jurisdiction (research.start's `jurisdiction` arg is optional),
@@ -170,6 +192,20 @@ export default defineSchema({
     // compatible: regimeKey (above) remains the free-text display link
     // for everything else.
     regimeId: v.optional(v.id("regulatoryRegimes")),
+
+    // How current a forward-looking item's classification actually is —
+    // see TEMPORAL_STATUSES above. `statusCheckAt` is when the engine's
+    // deterministic staleness check ran (a date-arithmetic check against
+    // dates already extracted from the source, never a live re-fetch) —
+    // it is NOT evidence the item's real-world status was confirmed.
+    // `lastVerifiedAt` is reserved for that stronger claim (e.g. a future
+    // pass that actually re-checks the source) and is never set by the
+    // staleness check alone; a finding with statusCheckAt but no
+    // lastVerifiedAt has had its *freshness* checked, not its *status*
+    // verified — the UI must keep that distinction visible.
+    temporalStatus: v.optional(temporalStatusValidator),
+    statusCheckAt: v.optional(v.number()),
+    lastVerifiedAt: v.optional(v.number()),
   }).index("by_companyId", ["companyId"]),
 
   // The stable "regime ledger": relatively fixed named regulatory
@@ -191,6 +227,12 @@ export default defineSchema({
     regulator: v.string(),
     regulatoryArea: v.string(),
     canonicalSourceUrl: v.optional(v.string()),
+    // Every distinct source URL that has ever supported this canonical
+    // regime — preserved across a dedup merge rather than collapsed to
+    // just canonicalSourceUrl, so merging near-duplicate ledger rows into
+    // one canonical regime never discards provenance the merged-away rows
+    // contributed.
+    sourceUrls: v.optional(v.array(v.string())),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
   }).index("by_jurisdiction_identity", ["jurisdiction", "canonicalIdentity"]),

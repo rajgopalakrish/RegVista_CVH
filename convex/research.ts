@@ -10,6 +10,7 @@ import {
   jurisdictionValidator,
   regulatoryStatusValidator,
   sourceQualityValidator,
+  temporalStatusValidator,
 } from "./schema";
 
 // --- Regime ledger: credibility bar + identity normalization ---------------
@@ -285,6 +286,8 @@ export const recordFindings = internalMutation({
         implementationDate: v.optional(v.string()),
         consultationDeadline: v.optional(v.string()),
         reportingDeadline: v.optional(v.string()),
+        temporalStatus: v.optional(temporalStatusValidator),
+        statusCheckAt: v.optional(v.number()),
       }),
     ),
   },

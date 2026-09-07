@@ -527,11 +527,20 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
   const potentialRegimeFindings = currentFindings.filter(
     (f) => isEstablishedRegime(f) && !activeRegimeFindingIds.has(f._id),
   );
-  const upcomingOrChanging = currentFindings.filter(isUpcomingOrChanging);
+  // A forward-looking item whose own dates are too stale to confidently
+  // call it current (temporalStatus === "STATUS_UNKNOWN", set by a
+  // deterministic date check, never a live re-fetch) gets its own group
+  // instead of inflating "Upcoming / Changing" — an old, unconfirmed
+  // consultation isn't the same claim as a genuinely current one.
+  const needsVerification = currentFindings.filter((f) => f.temporalStatus === "STATUS_UNKNOWN");
+  const upcomingOrChanging = currentFindings.filter(
+    (f) => isUpcomingOrChanging(f) && f.temporalStatus !== "STATUS_UNKNOWN",
+  );
   const recentDevelopments = currentFindings.filter(
     (f) =>
       !activeRegimeFindingIds.has(f._id) &&
       !upcomingOrChanging.includes(f) &&
+      !needsVerification.includes(f) &&
       !isEstablishedRegime(f),
   );
   const jurisdictionCount = new Set([
@@ -629,6 +638,13 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
         subtitle="Consultations, proposed rules, and implementation changes to watch."
         items={upcomingOrChanging}
         accent="upcoming"
+        highlightedId={highlightedId}
+      />
+      <FindingGroup
+        title="Needs Verification"
+        subtitle="Consultations or proposed changes old enough that their current status can't be confirmed from what this run retrieved."
+        items={needsVerification}
+        accent="unverified"
         highlightedId={highlightedId}
       />
       <FindingGroup
@@ -873,10 +889,14 @@ function RegulatoryExposureMap({
   );
 }
 
-const GROUP_ACCENT_CLASS: Record<"active" | "potential" | "upcoming" | "developments", string> = {
+const GROUP_ACCENT_CLASS: Record<
+  "active" | "potential" | "upcoming" | "unverified" | "developments",
+  string
+> = {
   active: "finding-group-active",
   potential: "finding-group-potential",
   upcoming: "finding-group-upcoming",
+  unverified: "finding-group-unverified",
   developments: "finding-group-developments",
 };
 
@@ -890,7 +910,7 @@ function FindingGroup({
   title: string;
   subtitle: string;
   items: Finding[];
-  accent: "active" | "potential" | "upcoming" | "developments";
+  accent: "active" | "potential" | "upcoming" | "unverified" | "developments";
   highlightedId: Id<"findings"> | null;
 }) {
   if (items.length === 0) return null;
@@ -984,6 +1004,15 @@ function ApplicabilityIndicator({
   );
 }
 
+// statusCheckAt is a timestamp (when the engine's deterministic staleness
+// check ran), not a free-text source-extracted date like the fields below
+// it — formatted separately, and deliberately labeled "Status checked"
+// rather than "verified": the check confirms the item's *age*, not its
+// real-world outcome. See TEMPORAL_STATUSES in convex/schema.ts.
+function formatCheckedDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 function FindingCard({ finding: f, highlighted }: { finding: Finding; highlighted: boolean }) {
   const dates = [
     f.publicationDate && `Published ${f.publicationDate}`,
@@ -991,12 +1020,23 @@ function FindingCard({ finding: f, highlighted }: { finding: Finding; highlighte
     f.implementationDate && `Implementation ${f.implementationDate}`,
     f.consultationDeadline && `Consultation deadline ${f.consultationDeadline}`,
     f.reportingDeadline && `Reporting deadline ${f.reportingDeadline}`,
+    f.temporalStatus === "STATUS_UNKNOWN" &&
+      f.statusCheckAt &&
+      `Status checked ${formatCheckedDate(f.statusCheckAt)}`,
   ].filter(Boolean);
 
   return (
     <li id={`finding-${f._id}`} className={highlighted ? "finding finding-highlighted" : "finding"}>
       <div className="finding-top-row">
         {f.itemType && <span className="badge badge-muted">{ITEM_TYPE_LABELS[f.itemType] ?? f.itemType}</span>}
+        {f.temporalStatus === "STATUS_UNKNOWN" && (
+          <span
+            className="badge badge-caution"
+            title="This item's dates are old enough that its current status can't be confirmed from what this run retrieved"
+          >
+            Status requires verification
+          </span>
+        )}
         <span className="relevance">Relevance {f.relevanceScore}</span>
       </div>
       <h4 className="finding-title">{f.title}</h4>

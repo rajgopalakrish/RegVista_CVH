@@ -14,6 +14,7 @@ import {
   jurisdictionValidator,
   REGULATORY_STATUSES,
   SOURCE_QUALITY_TIERS,
+  type TEMPORAL_STATUSES,
 } from "./schema";
 
 const MODEL = "gpt-4.1-mini";
@@ -599,6 +600,18 @@ export const run = internalAction({
               : f.sourceQuality;
           if (sourceQuality !== f.sourceQuality) downgradedSourceQualityCount++;
 
+          const temporal = deriveTemporalStatus(
+            itemType,
+            status,
+            {
+              publicationDate: f.publicationDate,
+              effectiveDate: f.effectiveDate,
+              implementationDate: f.implementationDate,
+              consultationDeadline: f.consultationDeadline,
+            },
+            retrievedAt,
+          );
+
           const claimContext = { regimeLabel: f.regimeKey ?? f.title, regulatoryArea: f.regulatoryArea };
           const summary = neutralizeUnsupportedClaims(f.summary, applicabilityEvidence, claimContext);
           const whyItMatters = neutralizeUnsupportedClaims(
@@ -627,6 +640,8 @@ export const run = internalAction({
             implementationDate: f.implementationDate ?? undefined,
             consultationDeadline: f.consultationDeadline ?? undefined,
             reportingDeadline: f.reportingDeadline ?? undefined,
+            temporalStatus: temporal?.temporalStatus,
+            statusCheckAt: temporal?.statusCheckAt,
             sources,
           };
         })
@@ -924,6 +939,58 @@ function correctFutureStatus(
   const dateMs = parseApproxDateMs(effectiveDate ?? undefined) ?? parseApproxDateMs(implementationDate ?? undefined);
   if (dateMs === null || dateMs > Date.now()) return status;
   return "PASSED_PENDING_OR_ONGOING_OBLIGATIONS";
+}
+
+// Temporal status: how CURRENT a forward-looking item's classification
+// still is, as opposed to `status` above (which only distinguishes an
+// established regime's in-force state). A consultation/proposed item the
+// model extracted from an old source can still be technically
+// FUTURE_OR_PROPOSED/CONSULTATION by itemType while being years stale —
+// nothing re-confirms whether it was finalized, withdrawn, or superseded
+// since. This is a deterministic date-arithmetic check against dates the
+// model itself already extracted (never a live re-fetch, never an LLM
+// guess about what "probably" happened) — it can only ever downgrade an
+// old, unconfirmed item to STATUS_UNKNOWN, never confirm one as current.
+// `statusCheckAt` is when this check ran; it is deliberately NOT called
+// "verified" or "lastVerifiedAt" anywhere here — that field is reserved
+// for actual evidence of the item's real-world outcome, which this
+// function never produces.
+const STALENESS_THRESHOLD_MS = 365 * 24 * 60 * 60 * 1000; // 12 months
+
+function deriveTemporalStatus(
+  itemType: (typeof ITEM_TYPES)[number],
+  status: (typeof REGULATORY_STATUSES)[number],
+  dates: {
+    publicationDate?: string | null;
+    effectiveDate?: string | null;
+    implementationDate?: string | null;
+    consultationDeadline?: string | null;
+  },
+  now: number,
+): { temporalStatus: (typeof TEMPORAL_STATUSES)[number]; statusCheckAt: number } | undefined {
+  const isForwardLooking =
+    itemType === "CONSULTATION" ||
+    itemType === "PROPOSED_RULE" ||
+    itemType === "IMPLEMENTATION" ||
+    (itemType === "REGULATION_REGIME" && status === "FUTURE_OR_PROPOSED");
+  if (!isForwardLooking) return undefined;
+
+  // Most-relevant-date precedence: a stated deadline/effective/
+  // implementation date is a stronger recency signal than the original
+  // publication date alone.
+  const referenceMs =
+    parseApproxDateMs(dates.consultationDeadline ?? undefined) ??
+    parseApproxDateMs(dates.effectiveDate ?? undefined) ??
+    parseApproxDateMs(dates.implementationDate ?? undefined) ??
+    parseApproxDateMs(dates.publicationDate ?? undefined);
+
+  if (referenceMs === null || now - referenceMs > STALENESS_THRESHOLD_MS) {
+    return { temporalStatus: "STATUS_UNKNOWN", statusCheckAt: now };
+  }
+  return {
+    temporalStatus: itemType === "CONSULTATION" ? "CONSULTATION" : "PROPOSED",
+    statusCheckAt: now,
+  };
 }
 
 // A starter set of common alternate names/abbreviations for each supported

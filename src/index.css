@@ -927,6 +927,14 @@ body {
   border-left-color: #3a5a8a;
 }
 
+/* Same slate token as .finding-group-potential — deliberately identical
+   treatment, not a new color: both mean "not confident enough to state
+   plainly," just for different reasons (ledger admission vs. temporal
+   staleness). */
+.finding-group-unverified {
+  border-left-color: #6b6f85;
+}
+
 .finding-group-heading {
   display: flex;
   align-items: center;
@@ -956,6 +964,10 @@ body {
   background: #3a5a8a;
 }
 
+.group-dot-unverified {
+  background: #6b6f85;
+}
+
 .finding-group-title {
   margin: 0;
   font-size: 1.02rem;
@@ -970,6 +982,10 @@ body {
 }
 
 .finding-group-potential .finding-group-title {
+  color: #aab0c6;
+}
+
+.finding-group-unverified .finding-group-title {
   color: #aab0c6;
 }
 
