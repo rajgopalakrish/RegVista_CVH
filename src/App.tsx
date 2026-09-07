@@ -12,32 +12,35 @@ const AUTO_DETECT = "";
 // beneath it). Coordinates are hand-placed constants, not derived from any
 // company's actual data — no labels, no real names, nothing here should
 // ever be read as representing a researched relationship.
-const HERO_ROOT: readonly [number, number] = [80, 108];
+// Spread across nearly the full 0–900 viewBox width (previously clustered
+// in the left ~90%, leaving visible dead space at the header's right edge
+// once "slice" scaling maps the viewBox onto the full-width header).
+const HERO_ROOT: readonly [number, number] = [40, 112];
 const HERO_AREA_NODES: readonly (readonly [number, number])[] = [
-  [230, 46],
-  [360, 26],
-  [520, 64],
-  [650, 34],
-  [760, 78],
-  [560, 150],
-  [340, 168],
+  [150, 44],
+  [330, 24],
+  [540, 62],
+  [720, 30],
+  [860, 76],
+  [600, 150],
+  [300, 168],
 ];
 // [x, y, index into HERO_AREA_NODES this leaf branches from]
 const HERO_LEAF_NODES: readonly (readonly [number, number, number])[] = [
-  [270, 100, 0],
-  [200, 90, 0],
-  [400, 70, 1],
-  [420, 10, 1],
-  [560, 110, 2],
-  [500, 30, 2],
-  [700, 80, 3],
-  [690, 10, 3],
-  [800, 40, 4],
-  [820, 120, 4],
-  [610, 190, 5],
-  [500, 170, 5],
-  [280, 200, 6],
-  [400, 190, 6],
+  [205, 96, 0],
+  [110, 88, 0],
+  [380, 68, 1],
+  [410, 8, 1],
+  [595, 108, 2],
+  [515, 28, 2],
+  [790, 78, 3],
+  [770, 8, 3],
+  [840, 38, 4],
+  [875, 118, 4],
+  [665, 188, 5],
+  [520, 168, 5],
+  [220, 198, 6],
+  [390, 188, 6],
 ];
 
 function HeroMotif() {
