@@ -817,9 +817,6 @@ function RegulatoryExposureMap({
         <span>
           <i className="legend-dot legend-active" /> Active
         </span>
-        <span>
-          <i className="legend-dot legend-upcoming" /> Upcoming
-        </span>
         <span className="legend-provenance">
           <ProvenanceTick /> Regulator source
         </span>
