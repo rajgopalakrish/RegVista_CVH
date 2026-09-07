@@ -12,46 +12,12 @@ const AUTO_DETECT = "";
 // beneath it). Coordinates are hand-placed constants, not derived from any
 // company's actual data — no labels, no real names, nothing here should
 // ever be read as representing a researched relationship.
-// Spread across nearly the full 0–900 viewBox width (previously clustered
-// in the left ~90%, leaving visible dead space at the header's right edge
-// once "slice" scaling maps the viewBox onto the full-width header).
-const HERO_ROOT: readonly [number, number] = [40, 112];
-const HERO_AREA_NODES: readonly (readonly [number, number])[] = [
-  [150, 44],
-  [330, 24],
-  [540, 62],
-  [720, 30],
-  [860, 76],
-  [600, 150],
-  [300, 168],
-];
-// [x, y, index into HERO_AREA_NODES this leaf branches from]
-const HERO_LEAF_NODES: readonly (readonly [number, number, number])[] = [
-  [205, 96, 0],
-  [110, 88, 0],
-  [380, 68, 1],
-  [410, 8, 1],
-  [595, 108, 2],
-  [515, 28, 2],
-  [790, 78, 3],
-  [770, 8, 3],
-  [840, 38, 4],
-  [875, 118, 4],
-  [665, 188, 5],
-  [520, 168, 5],
-  [220, 198, 6],
-  [390, 188, 6],
-];
-
-// Same decorative concept as HERO_ROOT/HERO_AREA_NODES/HERO_LEAF_NODES
-// above, spread across a much larger scene so it can stand in as a
-// full-viewport backdrop on the landing view instead of a header-height
-// strip. The center of the 0–1650×0–920 box is deliberately left sparse
-// (nodes biased toward the edges/corners) so it never competes with the
-// search card or recent-company list sitting in the middle column — used
-// only when no company is selected yet (see HeroMotif's `expanded` prop);
-// the original constants above are untouched and still drive the header
-// exactly as before once a company/results page is showing.
+// Spread across a much larger scene than the header alone so it can stand
+// in as a full-viewport, persistent backdrop for the whole app (landing,
+// loading, and results) rather than a decoration that appears only on the
+// landing page. The center of the 0–1650×0–920 box is deliberately left
+// sparse (nodes biased toward the edges/corners) so it never competes with
+// the search card or recent-company list sitting in the middle column.
 const EXPANSIVE_ROOT: readonly [number, number] = [180, 190];
 const EXPANSIVE_AREA_NODES: readonly (readonly [number, number])[] = [
   [80, 55],
@@ -107,31 +73,41 @@ const EXPANSIVE_LEAF_NODES: readonly (readonly [number, number, number])[] = [
 // (rendered at root-node weight/glow, not the plain intermediate-node
 // style) — spread across the top-right, right, bottom, and left edges so
 // the root (top-left) isn't the only visually prominent node, matching a
-// "handful of larger nodes" rather than a single focal point. Header
-// (non-expanded) variant is untouched and has no equivalent.
+// "handful of larger nodes" rather than a single focal point.
 const EXPANSIVE_MAJOR_INDICES = new Set([4, 7, 9, 13]);
 
-function HeroMotif({ expanded }: { expanded: boolean }) {
-  const root = expanded ? EXPANSIVE_ROOT : HERO_ROOT;
-  const areaNodes = expanded ? EXPANSIVE_AREA_NODES : HERO_AREA_NODES;
-  const leafNodes = expanded ? EXPANSIVE_LEAF_NODES : HERO_LEAF_NODES;
-  const viewBox = expanded ? "0 0 1650 920" : "0 0 900 220";
+// A single, persistent constellation for the whole app — same geometry on
+// every screen (landing, loading, results). `dense` only turns the whole
+// layer down via CSS opacity once a company/results are showing (see
+// .hero-motif-dense), so the network recedes behind denser content instead
+// of being swapped for a different asset or disappearing.
+function HeroMotif({ dense }: { dense: boolean }) {
   return (
-    <div className={expanded ? "hero-motif hero-motif-expanded" : "hero-motif"} aria-hidden="true">
-      <svg className="hero-motif-svg" viewBox={viewBox} preserveAspectRatio="xMidYMid slice" focusable="false">
+    <div className={`hero-motif-expanded${dense ? " hero-motif-dense" : ""}`} aria-hidden="true">
+      <svg
+        className="hero-motif-svg"
+        viewBox="0 0 1650 920"
+        preserveAspectRatio="xMidYMid slice"
+        focusable="false"
+      >
         <g className="hero-motif-lines">
-          {areaNodes.map(([x, y], i) => (
-            <line key={`root-${i}`} x1={root[0]} y1={root[1]} x2={x} y2={y} />
+          {EXPANSIVE_AREA_NODES.map(([x, y], i) => (
+            <line key={`root-${i}`} x1={EXPANSIVE_ROOT[0]} y1={EXPANSIVE_ROOT[1]} x2={x} y2={y} />
           ))}
-          {leafNodes.map(([x, y, parent], i) => {
-            const [px, py] = areaNodes[parent];
+          {EXPANSIVE_LEAF_NODES.map(([x, y, parent], i) => {
+            const [px, py] = EXPANSIVE_AREA_NODES[parent];
             return <line key={`leaf-${i}`} x1={px} y1={py} x2={x} y2={y} />;
           })}
         </g>
         <g className="hero-motif-nodes">
-          <circle className="hero-motif-node hero-motif-node-root" cx={root[0]} cy={root[1]} r={5} />
-          {areaNodes.map(([x, y], i) => {
-            const isMajor = expanded && EXPANSIVE_MAJOR_INDICES.has(i);
+          <circle
+            className="hero-motif-node hero-motif-node-root"
+            cx={EXPANSIVE_ROOT[0]}
+            cy={EXPANSIVE_ROOT[1]}
+            r={5}
+          />
+          {EXPANSIVE_AREA_NODES.map(([x, y], i) => {
+            const isMajor = EXPANSIVE_MAJOR_INDICES.has(i);
             return (
               <circle
                 key={`area-${i}`}
@@ -142,7 +118,7 @@ function HeroMotif({ expanded }: { expanded: boolean }) {
               />
             );
           })}
-          {leafNodes.map(([x, y], i) => (
+          {EXPANSIVE_LEAF_NODES.map(([x, y], i) => (
             <circle key={`leafnode-${i}`} className="hero-motif-node hero-motif-node-leaf" cx={x} cy={y} r={1.8} />
           ))}
         </g>
@@ -157,8 +133,8 @@ export default function App() {
 
   return (
     <div className="app">
+      <HeroMotif dense={!isLanding} />
       <header className={isLanding ? "app-header app-header-landing" : "app-header"}>
-        <HeroMotif expanded={isLanding} />
         <div className="brand">
           <h1>RegVista</h1>
           <span className="brand-badge">Regulatory Intelligence</span>
@@ -307,6 +283,7 @@ function RecentList({
               onClick={() => onSelect(r.companyId)}
             >
               <span className={`status-dot status-dot-${r.status ?? "pending"}`} />
+              <CompanyBadge name={r.name} size="sm" />
               <span className="recent-row-name">{r.name}</span>
               <span className="recent-row-meta">
                 {r.requestedJurisdiction ?? "Global"}

@@ -32,36 +32,20 @@ body {
   margin-bottom: 1.5rem;
 }
 
-/* A restrained, abstract node/line backdrop behind the header — see the
-   HeroMotif component in App.tsx for what it is (and isn't) meant to show.
-   Negative z-index keeps it behind the header's own text without needing
-   to touch that text's stacking; position:absolute + the header's own
-   overflow:hidden together guarantee it can never cause page-level
-   horizontal scroll, regardless of viewport width. */
-.hero-motif {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  /* A faint atmospheric wash behind the motif — landing-page-only, kept on
-     this already-proven inset:0/z-index:-1 element rather than added to
-     .app-header itself, so it inherits the same containment guarantees. */
-  background-image:
-    radial-gradient(ellipse 520px 280px at 14% 32%, rgba(79, 124, 255, 0.16), transparent 70%),
-    radial-gradient(ellipse 900px 420px at 50% -10%, rgba(79, 124, 255, 0.12), transparent 65%);
-}
-
-/* Landing-only variant: instead of being confined to (and clipped by) the
-   header box, this escapes to a fixed full-viewport backdrop so the
-   constellation can read as "the page sits inside a network" rather than
-   "a strip behind the logo". `position: fixed` intentionally ignores
-   .app-header's own overflow:hidden (that only clips normal/absolute
-   descendants, not fixed ones) and, being z-index:-1 with no positioned
-   ancestor establishing a stacking context, still paints behind every
-   normal-flow element on the page — so it can never sit above or obscure
-   the search card, inputs, or buttons. Only ever rendered when no company
-   is selected (see HeroMotif's `expanded` prop in App.tsx); the results
-   view always uses the untouched, header-confined .hero-motif above. */
+/* App-wide persistent backdrop — see the HeroMotif component in App.tsx.
+   Rendered once at the top of .app (not inside .app-header), so it isn't
+   tied to header layout at all. `position: fixed` makes it cover the full
+   viewport regardless of where it sits in the DOM and ignores any
+   ancestor's overflow:hidden (that only clips normal/absolute descendants,
+   not fixed ones); being z-index:-1 with no positioned ancestor
+   establishing a stacking context, it still paints behind every
+   normal-flow element on the page, on every screen (landing, loading,
+   results) — so it can never sit above or obscure text or controls.
+   .hero-motif-dense (added once a company is selected) only dials the
+   opacity down via the rule below; the geometry/composition stays
+   identical across every app state, so the network reads as one
+   continuous environment rather than two different assets swapped in and
+   out. */
 .hero-motif-expanded {
   position: fixed;
   inset: 0;
@@ -73,6 +57,14 @@ body {
     radial-gradient(ellipse 520px 420px at 92% 78%, rgba(79, 124, 255, 0.12), transparent 70%),
     radial-gradient(ellipse 380px 300px at 77% 4%, rgba(120, 175, 255, 0.11), transparent 72%),
     radial-gradient(ellipse 360px 300px at 66% 96%, rgba(90, 145, 255, 0.1), transparent 72%);
+}
+
+/* Dials the whole layer down (not off) once a company/results are showing,
+   so it recedes into an ambient environment behind the denser interface
+   instead of competing with it — per the "must not disappear, only become
+   more subtle" requirement. */
+.hero-motif-dense {
+  opacity: 0.32;
 }
 
 .hero-motif-svg {
@@ -106,13 +98,12 @@ body {
   opacity: 0.38;
 }
 
-/* Expanded-variant overrides — scoped to .hero-motif-expanded so the
-   header-confined results-view motif above is completely untouched.
-   Lines/leaves are kept a little more restrained than the header variant
-   since there are many more of them spread over a much larger scene;
-   composition (nodes biased to the edges/corners, center left sparse —
-   see EXPANSIVE_AREA_NODES/EXPANSIVE_LEAF_NODES in App.tsx) does the work
-   of keeping the middle of the page calm, not per-node opacity. */
+/* Per-tier opacity/glow for the full-viewport constellation. Lines/leaves
+   are kept fairly restrained since there are many of them spread over a
+   large scene; composition (nodes biased to the edges/corners, center
+   left sparse — see EXPANSIVE_AREA_NODES/EXPANSIVE_LEAF_NODES in App.tsx)
+   does the work of keeping the middle of the page calm, not per-node
+   opacity. */
 .hero-motif-expanded .hero-motif-lines line {
   opacity: 0.16;
 }
@@ -141,12 +132,12 @@ body {
     min-height: 128px;
   }
 
-  .hero-motif {
-    opacity: 0.65;
-  }
-
   .hero-motif-expanded {
     opacity: 0.55;
+  }
+
+  .hero-motif-dense {
+    opacity: 0.22;
   }
 
   .brand h1 {
