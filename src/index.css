@@ -436,13 +436,11 @@ body {
 .company-logo-md {
   width: 22px;
   height: 22px;
-  padding: 2px;
 }
 
 .company-logo-sm {
   width: 16px;
   height: 16px;
-  padding: 1px;
   border-radius: 4px;
 }
 
