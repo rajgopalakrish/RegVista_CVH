@@ -791,10 +791,6 @@ body {
   border-left-style: dashed;
 }
 
-.regime-chip-enforced {
-  box-shadow: inset 0 0 0 1px rgba(200, 90, 90, 0.45);
-}
-
 .regime-chip-body {
   display: flex;
   flex-direction: column;
@@ -894,10 +890,6 @@ body {
 
 .legend-upcoming {
   background: #a67c2e;
-}
-
-.legend-enforced {
-  background: #c85a5a;
 }
 
 .legend-provenance {

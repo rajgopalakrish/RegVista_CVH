@@ -600,7 +600,6 @@ function RegulatoryLandscape({ companyId }: { companyId: Id<"companies"> }) {
         <RegulatoryExposureMap
           companyName={company.name}
           regimeFindings={activeRegimeFindings}
-          allFindings={currentFindings}
           onSelectFinding={handleSelectFinding}
         />
       )}
@@ -748,22 +747,24 @@ function CompanyProfileCard({ profile }: { profile: Doc<"companyProfiles"> }) {
 }
 
 // Company -> Regulatory Exposure Areas -> Regulatory Regimes, with
-// jurisdiction/regulator as attributes on each regime and an
-// Active/Upcoming/Enforcement status color. The lanes/chips are built from
-// the regime ledger's stable exposures (regimeFindings) rather than only
-// this run's own findings, so a regime a run doesn't happen to re-query
-// still appears here; allFindings (this run's findings) is used only to
-// cross-reference which regimes have an active enforcement development.
-// Skips rendering rather than forcing a map when there's nothing to show.
+// jurisdiction/regulator as attributes on each regime and an Active/Upcoming
+// status color. The map answers one question — "what regimes currently
+// govern, or are about to govern, this company?" — so it's built only from
+// the regime ledger's stable exposures (regimeFindings), never from
+// developments/enforcement/other finding types: those are event/action
+// types and finding categories, not regime statuses, and stay represented
+// in the finding-group sections below the map instead. The lanes/chips are
+// built from the ledger's stable exposures rather than only this run's own
+// findings, so a regime a run doesn't happen to re-query still appears
+// here. Skips rendering rather than forcing a map when there's nothing to
+// show.
 function RegulatoryExposureMap({
   companyName,
   regimeFindings,
-  allFindings,
   onSelectFinding,
 }: {
   companyName: string;
   regimeFindings: Finding[];
-  allFindings: Finding[];
   onSelectFinding: (id: Id<"findings">) => void;
 }) {
   if (regimeFindings.length === 0) return null;
@@ -789,21 +790,11 @@ function RegulatoryExposureMap({
     areaMap.get(key)!.push(f);
   }
 
-  // A regime is flagged "enforcement" when some other finding from this
-  // run (any itemType) sharing its regimeKey is itself an enforcement
-  // development — connecting two already-independent findings visually.
-  const enforcedRegimeKeys = new Set(
-    allFindings
-      .filter((f) => f.status === "ENFORCEMENT_DEVELOPMENT" && f.regimeKey)
-      .map((f) => f.regimeKey as string),
-  );
-
   return (
     <div className="exposure-map">
       <span className="section-label">Regulatory Exposure Map</span>
       <p className="exposure-map-subtitle">
-        How {companyName}'s regulatory exposure connects to the regimes, regulators, and
-        jurisdictions that matter — click a regime to jump to its finding.
+        Current and forthcoming regimes — click one to jump to its finding.
       </p>
 
       <div className="exposure-map-legend">
@@ -813,11 +804,8 @@ function RegulatoryExposureMap({
         <span>
           <i className="legend-dot legend-upcoming" /> Upcoming
         </span>
-        <span>
-          <i className="legend-dot legend-enforced" /> Enforcement
-        </span>
         <span className="legend-provenance">
-          <ProvenanceTick /> Regulator-sourced
+          <ProvenanceTick /> Regulator source
         </span>
       </div>
 
@@ -838,15 +826,12 @@ function RegulatoryExposureMap({
             <div className="exposure-lane-chips">
               {areaMap.get(area)!.map((f) => {
                 const isUpcoming = f.status === "FUTURE_OR_PROPOSED";
-                const isEnforced = f.regimeKey ? enforcedRegimeKeys.has(f.regimeKey) : false;
                 const isRegulatorSourced = f.sourceQuality === "TIER_1_REGULATOR_GOVERNMENT";
                 return (
                   <button
                     key={f._id}
                     className={
-                      "regime-chip " +
-                      (isUpcoming ? "regime-chip-upcoming" : "regime-chip-active") +
-                      (isEnforced ? " regime-chip-enforced" : "")
+                      "regime-chip " + (isUpcoming ? "regime-chip-upcoming" : "regime-chip-active")
                     }
                     onClick={() => onSelectFinding(f._id)}
                     title={`${f.regimeKey ?? f.title} — ${f.jurisdiction} — ${f.regulator}`}
