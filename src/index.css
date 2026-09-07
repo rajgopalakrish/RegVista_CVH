@@ -20,7 +20,68 @@ body {
 }
 
 .app-header {
+  position: relative;
+  overflow: hidden;
+  min-height: 150px;
   margin-bottom: 0.25rem;
+}
+
+/* A restrained, abstract node/line backdrop behind the header — see the
+   HeroMotif component in App.tsx for what it is (and isn't) meant to show.
+   Negative z-index keeps it behind the header's own text without needing
+   to touch that text's stacking; position:absolute + the header's own
+   overflow:hidden together guarantee it can never cause page-level
+   horizontal scroll, regardless of viewport width. */
+.hero-motif {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.hero-motif-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hero-motif-lines line {
+  stroke: #4f7cff;
+  stroke-width: 1;
+  opacity: 0.16;
+}
+
+.hero-motif-node {
+  fill: #4f7cff;
+}
+
+.hero-motif-node-root {
+  fill: #7fa0ff;
+  opacity: 0.6;
+  filter: drop-shadow(0 0 6px rgba(79, 124, 255, 0.55));
+}
+
+.hero-motif-node-area {
+  opacity: 0.4;
+}
+
+.hero-motif-node-leaf {
+  opacity: 0.26;
+}
+
+/* Mobile: a shorter backdrop crops the same SVG (preserveAspectRatio
+   "slice" fills-and-crops rather than squashing it) to fewer visible
+   nodes, and a touch more transparency keeps it from competing with the
+   header text on a small screen — "simplify / partially hidden", not a
+   different asset. */
+@media (max-width: 480px) {
+  .app-header {
+    min-height: 100px;
+  }
+
+  .hero-motif {
+    opacity: 0.65;
+  }
 }
 
 .brand h1 {

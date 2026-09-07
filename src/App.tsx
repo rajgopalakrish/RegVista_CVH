@@ -6,12 +6,74 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 
 const AUTO_DETECT = "";
 
+// Purely decorative — an abstract node/line motif evoking the shape of
+// regulatory intelligence (a company fanning out to regulatory areas, and
+// each area fanning out further to the regimes/regulators/jurisdictions
+// beneath it). Coordinates are hand-placed constants, not derived from any
+// company's actual data — no labels, no real names, nothing here should
+// ever be read as representing a researched relationship.
+const HERO_ROOT: readonly [number, number] = [80, 108];
+const HERO_AREA_NODES: readonly (readonly [number, number])[] = [
+  [230, 46],
+  [360, 26],
+  [520, 64],
+  [650, 34],
+  [760, 78],
+  [560, 150],
+  [340, 168],
+];
+// [x, y, index into HERO_AREA_NODES this leaf branches from]
+const HERO_LEAF_NODES: readonly (readonly [number, number, number])[] = [
+  [270, 100, 0],
+  [200, 90, 0],
+  [400, 70, 1],
+  [420, 10, 1],
+  [560, 110, 2],
+  [500, 30, 2],
+  [700, 80, 3],
+  [690, 10, 3],
+  [800, 40, 4],
+  [820, 120, 4],
+  [610, 190, 5],
+  [500, 170, 5],
+  [280, 200, 6],
+  [400, 190, 6],
+];
+
+function HeroMotif() {
+  return (
+    <div className="hero-motif" aria-hidden="true">
+      <svg className="hero-motif-svg" viewBox="0 0 900 220" preserveAspectRatio="xMidYMid slice" focusable="false">
+        <g className="hero-motif-lines">
+          {HERO_AREA_NODES.map(([x, y], i) => (
+            <line key={`root-${i}`} x1={HERO_ROOT[0]} y1={HERO_ROOT[1]} x2={x} y2={y} />
+          ))}
+          {HERO_LEAF_NODES.map(([x, y, parent], i) => {
+            const [px, py] = HERO_AREA_NODES[parent];
+            return <line key={`leaf-${i}`} x1={px} y1={py} x2={x} y2={y} />;
+          })}
+        </g>
+        <g className="hero-motif-nodes">
+          <circle className="hero-motif-node hero-motif-node-root" cx={HERO_ROOT[0]} cy={HERO_ROOT[1]} r={5} />
+          {HERO_AREA_NODES.map(([x, y], i) => (
+            <circle key={`area-${i}`} className="hero-motif-node hero-motif-node-area" cx={x} cy={y} r={3.2} />
+          ))}
+          {HERO_LEAF_NODES.map(([x, y], i) => (
+            <circle key={`leafnode-${i}`} className="hero-motif-node hero-motif-node-leaf" cx={x} cy={y} r={1.8} />
+          ))}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 export default function App() {
   const [companyId, setCompanyId] = useState<Id<"companies"> | null>(null);
 
   return (
     <div className="app">
       <header className="app-header">
+        <HeroMotif />
         <div className="brand">
           <h1>RegVista</h1>
           <span className="brand-badge">Regulatory Intelligence</span>
