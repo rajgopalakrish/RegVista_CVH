@@ -70,7 +70,9 @@ body {
   background-image:
     radial-gradient(ellipse 640px 420px at 11% 22%, rgba(111, 170, 255, 0.2), transparent 68%),
     radial-gradient(ellipse 1100px 620px at 50% -6%, rgba(79, 124, 255, 0.13), transparent 62%),
-    radial-gradient(ellipse 520px 420px at 92% 78%, rgba(79, 124, 255, 0.12), transparent 70%);
+    radial-gradient(ellipse 520px 420px at 92% 78%, rgba(79, 124, 255, 0.12), transparent 70%),
+    radial-gradient(ellipse 380px 300px at 77% 4%, rgba(120, 175, 255, 0.11), transparent 72%),
+    radial-gradient(ellipse 360px 300px at 66% 96%, rgba(90, 145, 255, 0.1), transparent 72%);
 }
 
 .hero-motif-svg {
@@ -321,14 +323,6 @@ body {
 
 .recent-list {
   margin-top: 0.75rem;
-  /* A subtle panel (same restrained dark/border language as .research-form)
-     keeps the row text legible now that the landing view's background
-     constellation is brighter/wider — rows were previously transparent,
-     relying only on the page's flat dark background behind them. */
-  background: rgba(11, 14, 20, 0.55);
-  border: 1px solid rgba(42, 51, 72, 0.6);
-  border-radius: 14px;
-  padding: 0.5rem;
 }
 
 .recent-list ul {
@@ -348,7 +342,10 @@ body {
   padding: 0.4rem 0.6rem;
   border-radius: 8px;
   border: 1px solid transparent;
-  background: transparent;
+  /* A bare, borderless wash per row (not a boxed panel around the whole
+     list) — enough to keep names readable over the wider landing-view
+     constellation without Recent reading as its own separate section. */
+  background: rgba(6, 9, 14, 0.4);
   color: inherit;
   cursor: pointer;
   text-align: left;

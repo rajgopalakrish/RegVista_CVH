@@ -55,20 +55,20 @@ const HERO_LEAF_NODES: readonly (readonly [number, number, number])[] = [
 const EXPANSIVE_ROOT: readonly [number, number] = [180, 190];
 const EXPANSIVE_AREA_NODES: readonly (readonly [number, number])[] = [
   [80, 55],
-  [340, 25],
-  [650, 15],
-  [960, 40],
+  [355, 40],
+  [610, 10],
+  [980, 60],
   [1270, 20],
-  [1530, 75],
+  [1545, 100],
   [1590, 330],
   [1565, 610],
-  [1420, 840],
+  [1445, 815],
   [1110, 885],
-  [770, 865],
-  [450, 845],
-  [170, 780],
+  [800, 840],
+  [420, 860],
+  [150, 795],
   [35, 555],
-  [30, 295],
+  [50, 260],
 ];
 // [x, y, index into EXPANSIVE_AREA_NODES this leaf branches from]
 const EXPANSIVE_LEAF_NODES: readonly (readonly [number, number, number])[] = [
@@ -98,7 +98,18 @@ const EXPANSIVE_LEAF_NODES: readonly (readonly [number, number, number])[] = [
   [95, 685, 13],
   [90, 415, 14],
   [40, 155, 14],
+  [1600, 870, 8],
+  [1320, 905, 9],
+  [55, 900, 12],
 ];
+
+// Indices into EXPANSIVE_AREA_NODES singled out as extra "major" anchors
+// (rendered at root-node weight/glow, not the plain intermediate-node
+// style) — spread across the top-right, right, bottom, and left edges so
+// the root (top-left) isn't the only visually prominent node, matching a
+// "handful of larger nodes" rather than a single focal point. Header
+// (non-expanded) variant is untouched and has no equivalent.
+const EXPANSIVE_MAJOR_INDICES = new Set([4, 7, 9, 13]);
 
 function HeroMotif({ expanded }: { expanded: boolean }) {
   const root = expanded ? EXPANSIVE_ROOT : HERO_ROOT;
@@ -119,9 +130,18 @@ function HeroMotif({ expanded }: { expanded: boolean }) {
         </g>
         <g className="hero-motif-nodes">
           <circle className="hero-motif-node hero-motif-node-root" cx={root[0]} cy={root[1]} r={5} />
-          {areaNodes.map(([x, y], i) => (
-            <circle key={`area-${i}`} className="hero-motif-node hero-motif-node-area" cx={x} cy={y} r={3.2} />
-          ))}
+          {areaNodes.map(([x, y], i) => {
+            const isMajor = expanded && EXPANSIVE_MAJOR_INDICES.has(i);
+            return (
+              <circle
+                key={`area-${i}`}
+                className={`hero-motif-node ${isMajor ? "hero-motif-node-root" : "hero-motif-node-area"}`}
+                cx={x}
+                cy={y}
+                r={isMajor ? 4.2 : 3.2}
+              />
+            );
+          })}
           {leafNodes.map(([x, y], i) => (
             <circle key={`leafnode-${i}`} className="hero-motif-node hero-motif-node-leaf" cx={x} cy={y} r={1.8} />
           ))}
