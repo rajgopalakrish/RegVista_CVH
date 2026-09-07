@@ -22,8 +22,14 @@ body {
 .app-header {
   position: relative;
   overflow: hidden;
-  min-height: 150px;
-  margin-bottom: 0.25rem;
+  min-height: 192px;
+  margin-bottom: 0.75rem;
+}
+
+/* Extra breathing room before the search card on the landing view only —
+   the results view keeps the tighter, already-frozen spacing above. */
+.app-header-landing {
+  margin-bottom: 1.5rem;
 }
 
 /* A restrained, abstract node/line backdrop behind the header — see the
@@ -40,7 +46,31 @@ body {
   /* A faint atmospheric wash behind the motif — landing-page-only, kept on
      this already-proven inset:0/z-index:-1 element rather than added to
      .app-header itself, so it inherits the same containment guarantees. */
-  background-image: radial-gradient(ellipse 900px 400px at 50% -10%, rgba(79, 124, 255, 0.09), transparent 65%);
+  background-image:
+    radial-gradient(ellipse 520px 280px at 14% 32%, rgba(79, 124, 255, 0.16), transparent 70%),
+    radial-gradient(ellipse 900px 420px at 50% -10%, rgba(79, 124, 255, 0.12), transparent 65%);
+}
+
+/* Landing-only variant: instead of being confined to (and clipped by) the
+   header box, this escapes to a fixed full-viewport backdrop so the
+   constellation can read as "the page sits inside a network" rather than
+   "a strip behind the logo". `position: fixed` intentionally ignores
+   .app-header's own overflow:hidden (that only clips normal/absolute
+   descendants, not fixed ones) and, being z-index:-1 with no positioned
+   ancestor establishing a stacking context, still paints behind every
+   normal-flow element on the page — so it can never sit above or obscure
+   the search card, inputs, or buttons. Only ever rendered when no company
+   is selected (see HeroMotif's `expanded` prop in App.tsx); the results
+   view always uses the untouched, header-confined .hero-motif above. */
+.hero-motif-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 640px 420px at 11% 22%, rgba(111, 170, 255, 0.2), transparent 68%),
+    radial-gradient(ellipse 1100px 620px at 50% -6%, rgba(79, 124, 255, 0.13), transparent 62%),
+    radial-gradient(ellipse 520px 420px at 92% 78%, rgba(79, 124, 255, 0.12), transparent 70%);
 }
 
 .hero-motif-svg {
@@ -52,7 +82,7 @@ body {
 .hero-motif-lines line {
   stroke: #4f7cff;
   stroke-width: 1;
-  opacity: 0.19;
+  opacity: 0.24;
 }
 
 .hero-motif-node {
@@ -61,17 +91,42 @@ body {
 
 .hero-motif-node-root {
   fill: #7fa0ff;
-  opacity: 0.75;
-  filter: drop-shadow(0 0 9px rgba(79, 124, 255, 0.6)) drop-shadow(0 0 16px rgba(79, 124, 255, 0.28));
+  opacity: 0.82;
+  filter: drop-shadow(0 0 10px rgba(79, 124, 255, 0.65)) drop-shadow(0 0 18px rgba(79, 124, 255, 0.32));
 }
 
 .hero-motif-node-area {
-  opacity: 0.5;
-  filter: drop-shadow(0 0 4px rgba(79, 124, 255, 0.35));
+  opacity: 0.58;
+  filter: drop-shadow(0 0 5px rgba(79, 124, 255, 0.4));
 }
 
 .hero-motif-node-leaf {
-  opacity: 0.32;
+  opacity: 0.38;
+}
+
+/* Expanded-variant overrides — scoped to .hero-motif-expanded so the
+   header-confined results-view motif above is completely untouched.
+   Lines/leaves are kept a little more restrained than the header variant
+   since there are many more of them spread over a much larger scene;
+   composition (nodes biased to the edges/corners, center left sparse —
+   see EXPANSIVE_AREA_NODES/EXPANSIVE_LEAF_NODES in App.tsx) does the work
+   of keeping the middle of the page calm, not per-node opacity. */
+.hero-motif-expanded .hero-motif-lines line {
+  opacity: 0.16;
+}
+
+.hero-motif-expanded .hero-motif-node-root {
+  opacity: 0.85;
+  filter: drop-shadow(0 0 12px rgba(120, 170, 255, 0.7)) drop-shadow(0 0 22px rgba(79, 124, 255, 0.35));
+}
+
+.hero-motif-expanded .hero-motif-node-area {
+  opacity: 0.5;
+  filter: drop-shadow(0 0 5px rgba(79, 124, 255, 0.38));
+}
+
+.hero-motif-expanded .hero-motif-node-leaf {
+  opacity: 0.24;
 }
 
 /* Mobile: a shorter backdrop crops the same SVG (preserveAspectRatio
@@ -81,52 +136,77 @@ body {
    different asset. */
 @media (max-width: 480px) {
   .app-header {
-    min-height: 100px;
+    min-height: 128px;
   }
 
   .hero-motif {
     opacity: 0.65;
   }
+
+  .hero-motif-expanded {
+    opacity: 0.55;
+  }
+
+  .brand h1 {
+    font-size: 2.3rem;
+  }
+
+  .brand-badge {
+    max-width: none;
+  }
 }
 
 .brand h1 {
-  font-size: 1.6rem;
-  letter-spacing: -0.01em;
+  font-size: clamp(2.25rem, 6vw, 4.25rem);
+  letter-spacing: -0.02em;
+  color: #f5f8ff;
+  /* Layered soft glow (not gradient-filled text) for a "luminous wordmark"
+     feel — a bright near-white core with a blue bloom around it, tuned to
+     read as premium/cinematic rather than a saturated neon outline. */
+  text-shadow:
+    0 0 14px rgba(160, 200, 255, 0.55),
+    0 0 32px rgba(90, 140, 255, 0.45),
+    0 0 70px rgba(70, 120, 255, 0.28);
 }
 
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
+  align-items: center;
+  gap: 1rem;
   flex-wrap: wrap;
 }
 
 .brand h1 {
-  margin: 0 0 0.15rem;
+  margin: 0;
 }
 
 .brand-badge {
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #7fe0ff;
-  border: 1px solid rgba(127, 224, 255, 0.32);
-  /* Solid (not translucent) so a hero-motif node/glow directly behind the
-     pill can never show through it — the earlier low-alpha fill let a
-     motif dot bleed through as a stray-looking artifact over the badge
-     text. */
-  background: #131a29;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  white-space: nowrap;
-  box-shadow: 0 0 14px rgba(79, 124, 255, 0.14);
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: #6fb4ff;
+  /* A vertical divider instead of a pill — sits naturally beside the much
+     larger glowing wordmark. Wrapping (no nowrap) plus the width cap lets
+     "Regulatory Intelligence" break into two stacked words on its own,
+     with no markup/copy change. */
+  border: none;
+  border-left: 1px solid rgba(111, 180, 255, 0.35);
+  background: none;
+  box-shadow: none;
+  padding: 0.05rem 0 0.05rem 0.85rem;
+  border-radius: 0;
+  white-space: normal;
+  max-width: 9.5rem;
+  line-height: 1.35;
   position: relative;
   z-index: 1;
 }
 
 .tagline {
   color: #9aa3b2;
-  margin: 0.1rem 0 0;
+  font-size: 1.05rem;
+  margin: 0.9rem 0 0;
 }
 
 /* Shared small-caps section/field label used across the picker, profile
@@ -241,6 +321,14 @@ body {
 
 .recent-list {
   margin-top: 0.75rem;
+  /* A subtle panel (same restrained dark/border language as .research-form)
+     keeps the row text legible now that the landing view's background
+     constellation is brighter/wider — rows were previously transparent,
+     relying only on the page's flat dark background behind them. */
+  background: rgba(11, 14, 20, 0.55);
+  border: 1px solid rgba(42, 51, 72, 0.6);
+  border-radius: 14px;
+  padding: 0.5rem;
 }
 
 .recent-list ul {

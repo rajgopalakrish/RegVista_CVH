@@ -43,25 +43,86 @@ const HERO_LEAF_NODES: readonly (readonly [number, number, number])[] = [
   [390, 188, 6],
 ];
 
-function HeroMotif() {
+// Same decorative concept as HERO_ROOT/HERO_AREA_NODES/HERO_LEAF_NODES
+// above, spread across a much larger scene so it can stand in as a
+// full-viewport backdrop on the landing view instead of a header-height
+// strip. The center of the 0–1650×0–920 box is deliberately left sparse
+// (nodes biased toward the edges/corners) so it never competes with the
+// search card or recent-company list sitting in the middle column — used
+// only when no company is selected yet (see HeroMotif's `expanded` prop);
+// the original constants above are untouched and still drive the header
+// exactly as before once a company/results page is showing.
+const EXPANSIVE_ROOT: readonly [number, number] = [180, 190];
+const EXPANSIVE_AREA_NODES: readonly (readonly [number, number])[] = [
+  [80, 55],
+  [340, 25],
+  [650, 15],
+  [960, 40],
+  [1270, 20],
+  [1530, 75],
+  [1590, 330],
+  [1565, 610],
+  [1420, 840],
+  [1110, 885],
+  [770, 865],
+  [450, 845],
+  [170, 780],
+  [35, 555],
+  [30, 295],
+];
+// [x, y, index into EXPANSIVE_AREA_NODES this leaf branches from]
+const EXPANSIVE_LEAF_NODES: readonly (readonly [number, number, number])[] = [
+  [145, 145, 0],
+  [40, 15, 1],
+  [235, 90, 1],
+  [430, 100, 2],
+  [570, 15, 2],
+  [745, 80, 3],
+  [885, 90, 4],
+  [1045, 10, 4],
+  [1185, 100, 5],
+  [1365, 35, 5],
+  [1475, 155, 6],
+  [1615, 205, 6],
+  [1620, 480, 7],
+  [1495, 470, 7],
+  [1615, 730, 8],
+  [1475, 720, 8],
+  [1495, 905, 9],
+  [1280, 900, 9],
+  [975, 905, 10],
+  [640, 905, 10],
+  [325, 900, 11],
+  [565, 900, 11],
+  [255, 900, 12],
+  [95, 685, 13],
+  [90, 415, 14],
+  [40, 155, 14],
+];
+
+function HeroMotif({ expanded }: { expanded: boolean }) {
+  const root = expanded ? EXPANSIVE_ROOT : HERO_ROOT;
+  const areaNodes = expanded ? EXPANSIVE_AREA_NODES : HERO_AREA_NODES;
+  const leafNodes = expanded ? EXPANSIVE_LEAF_NODES : HERO_LEAF_NODES;
+  const viewBox = expanded ? "0 0 1650 920" : "0 0 900 220";
   return (
-    <div className="hero-motif" aria-hidden="true">
-      <svg className="hero-motif-svg" viewBox="0 0 900 220" preserveAspectRatio="xMidYMid slice" focusable="false">
+    <div className={expanded ? "hero-motif hero-motif-expanded" : "hero-motif"} aria-hidden="true">
+      <svg className="hero-motif-svg" viewBox={viewBox} preserveAspectRatio="xMidYMid slice" focusable="false">
         <g className="hero-motif-lines">
-          {HERO_AREA_NODES.map(([x, y], i) => (
-            <line key={`root-${i}`} x1={HERO_ROOT[0]} y1={HERO_ROOT[1]} x2={x} y2={y} />
+          {areaNodes.map(([x, y], i) => (
+            <line key={`root-${i}`} x1={root[0]} y1={root[1]} x2={x} y2={y} />
           ))}
-          {HERO_LEAF_NODES.map(([x, y, parent], i) => {
-            const [px, py] = HERO_AREA_NODES[parent];
+          {leafNodes.map(([x, y, parent], i) => {
+            const [px, py] = areaNodes[parent];
             return <line key={`leaf-${i}`} x1={px} y1={py} x2={x} y2={y} />;
           })}
         </g>
         <g className="hero-motif-nodes">
-          <circle className="hero-motif-node hero-motif-node-root" cx={HERO_ROOT[0]} cy={HERO_ROOT[1]} r={5} />
-          {HERO_AREA_NODES.map(([x, y], i) => (
+          <circle className="hero-motif-node hero-motif-node-root" cx={root[0]} cy={root[1]} r={5} />
+          {areaNodes.map(([x, y], i) => (
             <circle key={`area-${i}`} className="hero-motif-node hero-motif-node-area" cx={x} cy={y} r={3.2} />
           ))}
-          {HERO_LEAF_NODES.map(([x, y], i) => (
+          {leafNodes.map(([x, y], i) => (
             <circle key={`leafnode-${i}`} className="hero-motif-node hero-motif-node-leaf" cx={x} cy={y} r={1.8} />
           ))}
         </g>
@@ -72,11 +133,12 @@ function HeroMotif() {
 
 export default function App() {
   const [companyId, setCompanyId] = useState<Id<"companies"> | null>(null);
+  const isLanding = companyId === null;
 
   return (
     <div className="app">
-      <header className="app-header">
-        <HeroMotif />
+      <header className={isLanding ? "app-header app-header-landing" : "app-header"}>
+        <HeroMotif expanded={isLanding} />
         <div className="brand">
           <h1>RegVista</h1>
           <span className="brand-badge">Regulatory Intelligence</span>
