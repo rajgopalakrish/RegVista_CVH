@@ -4,10 +4,11 @@
 - **Event:** Convex All Gas Hackathon
 - **What it does:** Enter a company, optionally scope it to a jurisdiction
   (Singapore/EU/UK/US/Australia/India/China, or Global/Auto-detect), and see
-  its regulatory landscape — an inferred sector/exposure profile, its active
-  regulatory regimes (e.g. GDPR), upcoming/changing rules, and recent
-  enforcement/developments, each evidence-backed with a relevance score,
-  applicability, and "why this matters," plus an emailed briefing.
+  its regulatory landscape — an inferred sector/exposure profile, a
+  persistent ledger of active regulatory regimes (e.g. GDPR) plus
+  unconfirmed/upcoming/needs-verification signals, and regulatory
+  developments, each evidence-backed with a relevance score, applicability,
+  and "why this matters," plus an emailed briefing.
 - **Live app:** https://brilliant-roadrunner-68.convex.site
 - **Repo:** https://github.com/rajgopalakrish/RegVista_CVH
 - **Frontend:** Convex static hosting
@@ -17,7 +18,7 @@
 - **Auth:** none
 - **AI models:** gpt-4.1-mini (direct OpenAI SDK, two calls per run: company profiling, then classification — not the Convex AI Gateway)
 - **Started:** 2026-09-05T07:16:49Z
-- **Last updated:** 2026-09-06T04:12:20Z
+- **Last updated:** 2026-09-10T15:36:48Z
 
 ## Log
 
@@ -463,3 +464,101 @@ Verified: both `tsc` checks (frontend + Convex) clean, `npm run build`
 succeeds, backend + static frontend both deployed (new indexes created
 cleanly, additive-only schema change, no backfill migration). Full
 before/after data written up in `docs/decisions.md`.
+
+### 2026-09-06 - e164d4b
+Continued hardening the regulatory core and UI right after the ledger
+landed: raised `DISCOVERY_AREA_BUDGET` from 4 to 6 so Stage 1's full
+profiled exposure-area list gets a discovery query (was silently
+truncating to the first 4), and added a "Potential / Unconfirmed
+Regulatory Signals" group so a named regime that doesn't yet clear the
+ledger's admission bar stays visible instead of disappearing entirely.
+Fixed three real regime-identity bugs found on live Google/DBS/Grab
+output: a parenthetical citation forking its own ledger row instead of
+matching the base regime, a past-dated regime left `FUTURE_OR_PROPOSED`
+(new `correctFutureStatus` backstop), and `DIRECTLY_EVIDENCED`/TIER_1
+claimable off secondary-only sources (new hostname-based
+`hasAuthoritativeSource`/`sourceAuthorityRank` fix, validated against the
+model's actually-resolved citation pool, not just its raw text).
+
+UI/content polish on top: shell widened 820px→1140px so Exposure Map
+lanes lay out side by side, each finding group's accent carries into its
+title, case/format-only duplicate lanes in the Exposure Map now collapse
+(exact-match only, no fuzzy merging), the developments section was
+renamed from "Recent Regulatory Developments" to "Regulatory
+Developments" (items in it can be years old), `docs/demo-script.md` was
+rewritten around the actual live product (Grab/DBS/Google), a
+`CompanyBadge` brand chip and richer Exposure Map chip styling (dashed
+upcoming state, TIER_1 provenance tick, jurisdiction pin) were added, and
+a mobile Recent-list overflow bug (`min-width: 0` missing on a flex
+item) was fixed.
+
+Verified: unit tests (11/11) against real diagnostic inputs, live
+Google/DBS/Grab re-runs with zero ledger entries lost, frontend + Convex
+typecheck and build clean throughout.
+
+### 2026-09-07 - 25e0486
+Added a purely decorative constellation SVG (`HeroMotif` in `App.tsx`)
+behind the landing header — inline, hand-placed coordinates only, no
+real data, no external asset — then iterated on it per review: solid
+(not translucent) badge background to stop a motif node's glow bleeding
+through as a stray dot, wider node spread to fill the header edge to
+edge, reverted an initial gradient title back to plain color, dropped an
+added sub-tagline, and moved the Exposure Map's legend above the lanes.
+Also narrowed the Exposure Map's scope per feedback: dropped the
+enforcement-ring chip highlight (enforcement is a finding/event, not a
+regime status) and simplified its legend.
+
+Separately, a data-model quality pass added a deterministic (never a
+live re-check) temporal-status backstop: `findings` gained
+`temporalStatus`/`statusCheckAt` (`schema.ts`), and `deriveTemporalStatus`
+(`researchActions.ts`) flags a stale consultation/proposed-rule as
+`STATUS_UNKNOWN` — surfaced as its own "Needs Verification" group with a
+"Status checked \<date\>" line, never worded as "verified." Manually
+merged 4 duplicate DBS "MAS AML/CFT Notices" ledger rows into one
+(audited: same regulator, overlapping sources), preserving all source
+URLs on the surviving row via a new `regulatoryRegimes.sourceUrls`
+array; a general identity-algorithm fix for this pattern was designed
+and regression-tested but not shipped, since it would have silently
+forked Grab's own P2P-transport regime identity.
+
+Fixed a structural bug where researching an already-known company
+created a brand-new `companies` row every time (no dedup on the write
+path) — `companies.create` now normalizes the name and reuses the
+newest existing match; no historical duplicate rows were merged or
+deleted by the fix itself. Removed "Upcoming" from the Exposure Map
+legend as a standing category the map doesn't actually represent (CSS
+bundle hash unchanged, confirming a text-only change).
+
+### 2026-09-07 - 2f9a6d0
+Final landing-page visual pass. `RegVista` now renders with a layered
+white/blue glow (`text-shadow`, no gradient fill) and a restyled
+"Regulatory Intelligence" badge; the constellation motif became a
+persistent, full-viewport backdrop (`position: fixed`) mounted once at
+the app level instead of inside `<header>`, present on every screen — a
+`dense` prop dials its opacity down once a company/results are showing
+rather than swapping it out or unmounting it. Sharpened its node
+hierarchy (four extra nodes rendered at root weight instead of one flat
+tier) and made its layout less symmetric; removed a bordered panel
+around the Recent list that read as a separate boxed section.
+
+Replaced the 4-company hardcoded `CompanyBadge` chip list with a fully
+automatic resolver: `guessCompanyDomain()` derives a likely domain from
+the company's stored name (no lookup table), and `CompanyBadge` requests
+that domain's favicon from Google's public favicon endpoint as a plain
+`<img>` — any recognizable company gets a logo the same way, not just a
+fixed set; on any failure it falls back to the plain-text name already
+rendered alongside it. No new dependency. Removed the resulting padding
+on the logo mark so it fills its box edge-to-edge.
+
+Landing-page/app-shell CSS/JSX only throughout — no backend, schema,
+data, or dependency changes.
+
+### 2026-09-10 - cb248f0
+The auto-resolved favicon for a researched "Coca-Cola" entry rendered
+visibly cropped at logo size — the domain guess was correct, the source
+image just wasn't legible that small. Added one scoped exception
+(`isCocaCola`/`CocaColaLogo` in `App.tsx`) that renders a small
+hand-drawn inline SVG mark for that one name, reusing the exact same
+`.company-logo` classes/sizing as every other logo. The general
+`guessCompanyDomain` + favicon resolution path is untouched and still
+applies to every other company, present or future.
