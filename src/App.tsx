@@ -332,6 +332,41 @@ function guessCompanyDomain(name: string): string | null {
   return cleaned ? `${cleaned}.com` : null;
 }
 
+// One-off correction: the auto-resolved favicon for coca-cola.com renders
+// visibly cropped at this size — the domain guess itself is correct, the
+// source image just isn't usable this small. A hand-drawn mark (same box,
+// same classes as every other logo) sidesteps that single bad source
+// image without touching the general domain-guess/favicon path below,
+// which still runs unchanged for every other company, present or future.
+function isCocaCola(name: string): boolean {
+  return /coca[\s-]?cola/i.test(name);
+}
+
+function CocaColaLogo({ size }: { size: "md" | "sm" }) {
+  return (
+    <svg
+      className={`company-logo company-logo-${size}`}
+      viewBox="0 0 24 24"
+      role="img"
+      aria-label="Coca-Cola"
+    >
+      <rect width="24" height="24" rx="5" fill="#F40009" />
+      <text
+        x="12"
+        y="16.5"
+        textAnchor="middle"
+        fontFamily="Georgia, 'Times New Roman', serif"
+        fontStyle="italic"
+        fontWeight="700"
+        fontSize="15"
+        fill="#ffffff"
+      >
+        c
+      </text>
+    </svg>
+  );
+}
+
 // Renders the small logo mark shown next to a company name (Recent rows,
 // the results header, the Exposure Map's company node). Fully automatic:
 // resolves a likely domain from the name above and requests that domain's
@@ -344,6 +379,7 @@ function guessCompanyDomain(name: string): string | null {
 // this component draws itself.
 function CompanyBadge({ name, size = "md" }: { name: string; size?: "md" | "sm" }) {
   const [failed, setFailed] = useState(false);
+  if (isCocaCola(name)) return <CocaColaLogo size={size} />;
   const domain = guessCompanyDomain(name);
   if (!domain || failed) return null;
   return (
